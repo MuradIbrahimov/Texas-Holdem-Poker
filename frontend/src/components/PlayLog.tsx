@@ -1,0 +1,1 @@
+// In this area the program should capture all the actions taken. Ensure you follow the proposed format for logging (action, amounts, player names).

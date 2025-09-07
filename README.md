@@ -1,2 +1,2 @@
-# Poker-Modeling-task
+# Poker-Modeling
 Poker Modeling Exercise
