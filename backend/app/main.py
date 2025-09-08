@@ -7,6 +7,13 @@ import uvicorn
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# main.py or app startup
+from database import DatabaseConnection
+
+db = DatabaseConnection()
+db.init_db()  # Make sure schema is correct
+
+
 
 try:
     # Try absolute imports first (for Docker)

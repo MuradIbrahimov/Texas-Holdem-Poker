@@ -6,9 +6,7 @@ except ImportError:
     from repositories.hand_repository import HandRepository
 
 
-class PokerService:
-    """Service for poker hand evaluation and winner calculation"""
-    
+class PokerService:    
     def __init__(self, hand_repo: HandRepository):
         self.hand_repo = hand_repo
     
@@ -60,93 +58,61 @@ class PokerService:
         }
     
     def _evaluate_all_hands(self, players: List[dict], board_cards: str) -> Dict[int, Tuple]:
-        """
-        Evaluate all player hands
-        Returns dict of player_id -> (hand_strength, hand_description)
-        """
-        # Parse board cards
-        board = self._parse_cards(board_cards)
-        
         evaluations = {}
-        
+
         for player in players:
-            # Skip folded players (those with no cards or marked as folded)
             if not player.get('hole_cards') or player.get('folded', False):
                 continue
-            
-            # Parse player's hole cards
-            hole_cards = self._parse_cards(player['hole_cards'])
-            
-            # Combine hole cards with board
-            all_cards = hole_cards + board
-            
-            # Evaluate hand using pokerkit
-            best_hand = StandardHighHand.evaluate(all_cards)
-            
-            # Store evaluation
-            evaluations[player['player_id']] = (
-                best_hand.rank,  # Lower rank is better
-                str(best_hand.category).replace('_', ' ').title()  # Human-readable description
+
+            best_hand = StandardHighHand.from_game(
+                player['hole_cards'],
+                board_cards
             )
-        
+
+            evaluations[player['player_id']] = (
+                best_hand,        # Keep full hand object for comparison
+                str(best_hand)    # Use string for readable description
+            )
+
         return evaluations
+
+
     
     def _calculate_winnings(self, evaluations: Dict, pot_size: int, players: List[dict]) -> Tuple:
-        """
-        Calculate winnings based on hand evaluations
-        Returns (winners_list, winnings_by_player_dict, best_hands_dict)
-        """
         if not evaluations:
             return [], {}, {}
-        
-        # Find the best hand rank (lowest rank value wins)
-        best_rank = min(rank for rank, _ in evaluations.values())
-        
-        # Find all winners (players with the best rank)
+
+        # Find the best hand using pokerkit comparisons
+        best_hand = min(hand for hand, _ in evaluations.values())
+
+        # Winners are all players whose hand equals best_hand
         winners = [
-            player_id for player_id, (rank, _) in evaluations.items() 
-            if rank == best_rank
+            player_id for player_id, (hand, _) in evaluations.items()
+            if hand == best_hand
         ]
-        
-        # Calculate winnings
+
         winnings_by_player = {}
-        
-        # Winners split the pot
         if winners:
             win_amount = pot_size // len(winners)
             remainder = pot_size % len(winners)
-            
             for i, winner_id in enumerate(winners):
-                # Give remainder chips to first winner(s)
                 winnings_by_player[winner_id] = win_amount + (1 if i < remainder else 0)
-        
-        # Calculate losses for non-winners
+
+        # Non-winners lose
         for player in players:
             player_id = player['player_id']
             if player_id not in winnings_by_player:
-                # Calculate how much this player put in the pot (simplified)
-                # In a real implementation, this would track actual contributions
                 player_contribution = self._estimate_player_contribution(player)
                 winnings_by_player[player_id] = -player_contribution
-        
-        # Prepare best hands dictionary
+
+        # Return best hands in readable format
         best_hands = {
-            str(player_id): desc 
-            for player_id, (_, desc) in evaluations.items()
+            str(player_id): desc for player_id, (_, desc) in evaluations.items()
         }
-        
+
         return winners, winnings_by_player, best_hands
-    
-    def _parse_cards(self, cards_str: str) -> List[Card]:
-        """
-        Parse card string to pokerkit Card objects
-        Example: "AhKs" -> [Card("Ah"), Card("Ks")]
-        """
-        cards = []
-        for i in range(0, len(cards_str), 2):
-            card_str = cards_str[i:i+2]
-            cards.append(Card(card_str))
-        return cards
+
+
     
     def _estimate_player_contribution(self, player: dict) -> int:
         """
