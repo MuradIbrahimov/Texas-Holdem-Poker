@@ -234,7 +234,7 @@ def test_poker_hands():
                     {
                         "player_id": 1,
                         "position": 0,
-                        "hole_cards": "AhKs",  # High card
+                        "hole_cards": "AsKs",  # No flush (spades, not hearts)
                         "stack_size": 1000,
                         "actions": [],
                         "folded": False
