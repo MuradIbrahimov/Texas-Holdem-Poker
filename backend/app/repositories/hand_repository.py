@@ -1,142 +1,134 @@
-# backend/app/repositories/hand_repository.py - Fixed with proper error handling
+# backend/app/repositories/hand_repository.py - Fixed to handle completed_at
 
-import json
 import uuid
-from typing import List, Dict, Optional
+import json
+from typing import List, Dict, Any, Optional
 from datetime import datetime
 
+try:
+    from app.database import DatabaseConnection
+except ImportError:
+    from database import DatabaseConnection
 
 class HandRepository:
-    """Repository for hand data persistence and retrieval"""
-    
-    def __init__(self, db):
+    def __init__(self, db: DatabaseConnection):
         self.db = db
     
     def save_hand(self, hand_data: dict) -> str:
         """
         Save a completed hand to the database
-        Returns the hand UUID
+        Returns the UUID of the saved hand
         """
         hand_uuid = str(uuid.uuid4())
         
+        # Serialize complex data
+        players_json = json.dumps(hand_data.get('players_data', []))
+        results_json = json.dumps(hand_data.get('results', {}))
+        
         query = """
-        INSERT INTO hands (hand_uuid, players_data, board_cards, pot_size, small_blind, big_blind, results)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
-        RETURNING id
+            INSERT INTO hands (
+                uuid, players_data, board_cards, pot_size, 
+                small_blind, big_blind, results
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s)
         """
         
         params = (
             hand_uuid,
-            json.dumps(hand_data['players_data']),
-            hand_data['board_cards'],
-            hand_data['pot_size'],
+            players_json,
+            hand_data.get('board_cards', ''),
+            hand_data.get('pot_size', 0),
             hand_data.get('small_blind', 20),
             hand_data.get('big_blind', 40),
-            json.dumps(hand_data['results'])
+            results_json
         )
         
-        self.db.execute_insert(query, params)
+        self.db.execute_query(query, params)
         return hand_uuid
     
     def get_all_hands(self) -> List[Dict]:
         """
-        Get all hands sorted by newest first
-        Returns formatted hand logs for display
+        Retrieve all hands in the exact format specified by the task
         """
-        try:
-            query = """
-            SELECT 
-                hand_uuid,
-                players_data,
-                board_cards,
-                pot_size,
-                small_blind,
-                big_blind,
-                results,
-                created_at
+        query = """
+            SELECT uuid, players_data, board_cards, pot_size, 
+                   small_blind, big_blind, results
             FROM hands
-            ORDER BY created_at DESC
-            """
-            
-            rows = self.db.execute_query(query)
-            
-            # Handle case where no hands exist
-            if not rows:
-                return []
-            
-            hand_logs = []
-            
-            for row in rows:
-                try:
-                    # Safely parse JSON data
-                    if isinstance(row['players_data'], str):
-                        players_data = json.loads(row['players_data'])
-                    else:
-                        players_data = row['players_data']  # Already parsed
-                    
-                    if isinstance(row['results'], str):
-                        results = json.loads(row['results'])
-                    else:
-                        results = row['results']  # Already parsed
-                    
-                    # Format hand log entry
-                    hand_log = {
-                        'uuid': row['hand_uuid'],
-                        'stack_info': self._format_stack_info(players_data, row['small_blind'], row['big_blind']),
-                        'hole_cards': self._format_hole_cards(players_data),
-                        'action_sequence': self._format_action_sequence(players_data, row['board_cards']),
-                        'winnings': self._format_winnings(results.get('winnings_by_player', {})),
-                        'created_at': row['created_at'].isoformat() if hasattr(row['created_at'], 'isoformat') else str(row['created_at'])
-                    }
-                    hand_logs.append(hand_log)
-                    
-                except (json.JSONDecodeError, KeyError, TypeError) as e:
-                    print(f"Error processing hand {row.get('hand_uuid', 'unknown')}: {e}")
-                    # Skip this hand but continue processing others
-                    continue
-            
-            return hand_logs
-            
-        except Exception as e:
-            print(f"Error in get_all_hands: {e}")
-            return []  # Return empty list instead of crashing
+            ORDER BY id DESC
+            LIMIT 20
+        """
+        
+        rows = self.db.execute_query(query)
+        hands = []
+        
+        for row in rows:
+            try:
+                # Parse JSON data
+                players_data = json.loads(row['players_data']) if row['players_data'] else []
+                results = json.loads(row['results']) if row['results'] else {}
+                
+                # Format exactly as specified in the task
+                formatted_hand = {
+                    'uuid': row['uuid'],
+                    'stack_info': self._format_stack_info(players_data, row['small_blind'], row['big_blind']),
+                    'hole_cards': self._format_hole_cards(players_data),
+                    'action_sequence': self._format_action_sequence(players_data, row['board_cards']),
+                    'winnings': self._format_winnings(results.get('winnings_by_player', {}))
+                }
+                
+                hands.append(formatted_hand)
+            except (json.JSONDecodeError, KeyError) as e:
+                print(f"Error parsing hand data: {e}")
+                continue
+        
+        return hands
     
     def _format_stack_info(self, players_data: list, sb: int, bb: int) -> str:
-        """Format stack information with blinds"""
+        """Format: 'Stacks: P1:1000, P2:980, P3:960... | P1(BTN), P2(SB), P3(BB)'"""
         try:
-            stacks = [f"P{p['player_id']}:{p['stack_size']}" for p in players_data]
-            
-            # Find dealer, SB, BB positions (assuming 0=BTN, 1=SB, 2=BB in 6-max)
+            stacks = []
             positions = []
+            
             for p in players_data:
-                if p['position'] == 0:
+                # Stack info
+                stack = p.get('stack_size', 1000) + p.get('totalBet', 0)
+                stacks.append(f"P{p['player_id']}:{stack}")
+                
+                # Position info (0=BTN, 1=SB, 2=BB)
+                pos = p.get('position', p['player_id'] - 1)
+                if pos == 0:
                     positions.append(f"P{p['player_id']}(BTN)")
-                elif p['position'] == 1:
+                elif pos == 1:
                     positions.append(f"P{p['player_id']}(SB)")
-                elif p['position'] == 2:
+                elif pos == 2:
                     positions.append(f"P{p['player_id']}(BB)")
             
-            return f"Stacks: {', '.join(stacks)} | Positions: {', '.join(positions)} | Blinds: {sb}/{bb}"
-        except (KeyError, TypeError):
+            return f"{', '.join(stacks)} | {', '.join(positions)}"
+        except:
             return "Stack info unavailable"
     
     def _format_hole_cards(self, players_data: list) -> str:
-        """Format hole cards for all players"""
+        """Format: 'P1:AhKs, P2:QdQc, P3:7h2d...'"""
         try:
-            cards = [f"P{p['player_id']}:{p['hole_cards']}" for p in players_data]
-            return f"Hole cards: {', '.join(cards)}"
-        except (KeyError, TypeError):
+            cards = []
+            for p in players_data:
+                hole_cards = p.get('hole_cards', '')
+                if hole_cards:
+                    cards.append(f"P{p['player_id']}:{hole_cards}")
+            return ', '.join(cards)
+        except:
             return "Hole cards unavailable"
     
     def _format_action_sequence(self, players_data: list, board_cards: str) -> str:
         """
-        Format action sequence in short format
-        f=fold, x=check, c=call, b<amount>=bet, r<amount>=raise, allin=all-in
+        Format actions in short format with board cards
+        f=fold, x=check, c=call, b40=bet, r80=raise, allin=all-in
+        Example: 'P1:c P2:c P3:x [2h3d4c] P1:b40 P2:f P3:c [Ts] P1:x P3:x [Kh] P1:allin P3:f'
         """
         try:
-            # Collect all actions by street
+            sequence = []
             streets = {'preflop': [], 'flop': [], 'turn': [], 'river': []}
             
+            # Collect actions by street
             for player in players_data:
                 for action in player.get('actions', []):
                     street = action.get('street', 'preflop')
@@ -152,107 +144,74 @@ class HandRepository:
                     elif action_type == 'call':
                         short = 'c'
                     elif action_type == 'bet':
-                        short = f'b{amount}'
+                        short = f'b{amount}' if amount else 'b'
                     elif action_type == 'raise':
-                        short = f'r{amount}'
+                        short = f'r{amount}' if amount else 'r'
                     elif action_type == 'all_in':
                         short = 'allin'
                     else:
-                        short = action_type
+                        short = action_type[0]
                     
                     streets[street].append(f"P{player_id}:{short}")
             
-            # Build action sequence with board cards
-            sequence = []
-            
+            # Build sequence with board cards
             if streets['preflop']:
-                sequence.append(' '.join(streets['preflop']))
+                sequence.extend(streets['preflop'])
             
-            # Parse board cards (assuming format: "2h3d4c5s6h" - 5 cards)
-            if len(board_cards) >= 6:  # Has flop
-                flop = board_cards[:6]  # First 3 cards
-                sequence.append(f"[{flop}]")
+            # Add board cards between streets
+            if board_cards and len(board_cards) >= 6:  # Has flop
+                flop = f"[{board_cards[:6]}]"
+                sequence.append(flop)
                 if streets['flop']:
-                    sequence.append(' '.join(streets['flop']))
-            
-            if len(board_cards) >= 8:  # Has turn
-                turn = board_cards[6:8]  # 4th card
-                sequence.append(f"[{turn}]")
-                if streets['turn']:
-                    sequence.append(' '.join(streets['turn']))
-            
-            if len(board_cards) >= 10:  # Has river
-                river = board_cards[8:10]  # 5th card
-                sequence.append(f"[{river}]")
-                if streets['river']:
-                    sequence.append(' '.join(streets['river']))
+                    sequence.extend(streets['flop'])
+                
+                if len(board_cards) >= 8:  # Has turn
+                    turn = f"[{board_cards[6:8]}]"
+                    sequence.append(turn)
+                    if streets['turn']:
+                        sequence.extend(streets['turn'])
+                    
+                    if len(board_cards) >= 10:  # Has river
+                        river = f"[{board_cards[8:10]}]"
+                        sequence.append(river)
+                        if streets['river']:
+                            sequence.extend(streets['river'])
             
             return ' '.join(sequence)
-        except (KeyError, TypeError, IndexError):
+        except:
             return "Action sequence unavailable"
     
     def _format_winnings(self, winnings_by_player: dict) -> str:
-        """Format winnings for each player"""
+        """Format: 'P1:+240, P2:-40, P3:-40...'"""
         try:
             winnings = []
             for player_id, amount in winnings_by_player.items():
                 if amount > 0:
                     winnings.append(f"P{player_id}:+{amount}")
-                elif amount < 0:
-                    winnings.append(f"P{player_id}:{amount}")
                 else:
-                    winnings.append(f"P{player_id}:0")
-            
-            return f"Winnings: {', '.join(winnings)}"
-        except (TypeError, AttributeError):
+                    winnings.append(f"P{player_id}:{amount}")
+            return ', '.join(winnings)
+        except:
             return "Winnings unavailable"
     
     def get_hand_by_id(self, hand_uuid: str) -> Optional[Dict]:
         """Get a specific hand by UUID"""
-        try:
-            query = """
-            SELECT 
-                hand_uuid,
-                players_data,
-                board_cards,
-                pot_size,
-                small_blind,
-                big_blind,
-                results,
-                created_at
+        query = """
+            SELECT uuid, players_data, board_cards, pot_size, 
+                   small_blind, big_blind, results
             FROM hands
-            WHERE hand_uuid = %s
-            """
-            
-            rows = self.db.execute_query(query, (hand_uuid,))
-            
-            if not rows:
-                return None
-            
-            row = rows[0]
-            
-            # Safely parse JSON data
-            if isinstance(row['players_data'], str):
-                players_data = json.loads(row['players_data'])
-            else:
-                players_data = row['players_data']
-            
-            if isinstance(row['results'], str):
-                results = json.loads(row['results'])
-            else:
-                results = row['results']
-            
-            return {
-                'uuid': row['hand_uuid'],
-                'players_data': players_data,
-                'board_cards': row['board_cards'],
-                'pot_size': row['pot_size'],
-                'small_blind': row['small_blind'],
-                'big_blind': row['big_blind'],
-                'results': results,
-                'created_at': row['created_at'].isoformat() if hasattr(row['created_at'], 'isoformat') else str(row['created_at'])
-            }
-            
-        except Exception as e:
-            print(f"Error getting hand {hand_uuid}: {e}")
+            WHERE uuid = %s
+        """
+        
+        rows = self.db.execute_query(query, (hand_uuid,))
+        if not rows:
             return None
+            
+        row = rows[0]
+        return {
+            'uuid': row['uuid'],
+            'players_data': json.loads(row['players_data']) if row['players_data'] else [],
+            'board_cards': row['board_cards'],
+            'pot_size': row['pot_size'],
+            'results': json.loads(row['results']) if row['results'] else {}
+        }

@@ -1,7 +1,7 @@
 // frontend/src/components/ui/ActionButtons.jsx - Fixed action buttons
 
 import React, { useState } from 'react';
-import { useGameStore } from '../../gameStore';
+import { useGameStore } from '../../store/gameStore';
 
 const ActionButtons = () => {
   const { 

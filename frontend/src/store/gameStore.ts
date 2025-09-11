@@ -1,4 +1,3 @@
-// frontend/src/store/gameStore.ts - Complete fix for all issues
 
 import { create } from 'zustand';
 
@@ -437,56 +436,69 @@ export const useGameStore = create<GameState>((set, get) => ({
   }),
   
   evaluateHand: async () => {
-    const state = get();
-    console.log('🎲 Evaluating hands...');
-    
-    // Allow evaluation in both 'evaluating' and 'finished' states
-    if (state.gameState !== 'finished' && state.gameState !== 'evaluating') {
-      console.log('❌ Cannot evaluate - game state is:', state.gameState);
-      return;
-    }
-    
-    // Prepare the API request
-    const activePlayers = state.players.filter(p => !p.folded);
-    
-    if (activePlayers.length === 0) {
-      console.log('❌ No active players to evaluate');
-      return;
-    }
-    
-    if (activePlayers.length === 1) {
-      // Only one player left, they win by default
-      const winner = activePlayers[0];
-      set(state => ({
-        ...state,
-        winners: [winner.id],
-        gameState: 'finished',
-        actionLog: [
-          ...state.actionLog,
-          `🏆 Player ${winner.id} wins ${state.pot} chips! (all opponents folded)`
-        ]
-      }));
-      winner.stackSize += state.pot;
-      return;
-    }
-    
-    // Format board cards for API (needs to be exactly 10 chars like "2h3d4c5s6h")
-    const boardCardsString = state.boardCards.join('').padEnd(10, '2c');
-    
-    const requestData = {
-      players: activePlayers.map((player, index) => ({
-        player_id: player.id,
-        position: index,
-        hole_cards: player.holeCards.join(''),
-        stack_size: player.stackSize + player.totalBet,
-        actions: player.actions,
-        folded: player.folded
-      })),
-      board_cards: boardCardsString,
-      pot_size: state.pot,
-      small_blind: state.smallBlind,
-      big_blind: state.bigBlind
-    };
+  const state = get();
+  console.log('🎲 Evaluating hands...');
+  
+  // Allow evaluation in both 'evaluating' and 'finished' states
+  if (state.gameState !== 'finished' && state.gameState !== 'evaluating') {
+    console.log('❌ Cannot evaluate - game state is:', state.gameState);
+    return;
+  }
+  
+  // Prepare the API request
+  const activePlayers = state.players.filter(p => !p.folded);
+  
+  if (activePlayers.length === 0) {
+    console.log('❌ No active players to evaluate');
+    return;
+  }
+  
+  if (activePlayers.length === 1) {
+    // Only one player left, they win by default
+    const winner = activePlayers[0];
+    set(state => ({
+      ...state,
+      winners: [winner.id],
+      gameState: 'finished',
+      actionLog: [
+        ...state.actionLog,
+        `🏆 Player ${winner.id} wins ${state.pot} chips! (all opponents folded)`
+      ]
+    }));
+    winner.stackSize += state.pot;
+    return;
+  }
+  
+  // Format board cards for API - ensure exactly 10 valid card characters
+  let boardCardsString = state.boardCards.join('');
+  
+  // If we don't have enough cards, pad with dummy valid cards
+  // This ensures the backend always gets valid card format
+  const dummyCards = ['2c', '2d', '2h', '2s', '3c'];
+  let cardIndex = 0;
+  
+  while (boardCardsString.length < 10) {
+    boardCardsString += dummyCards[cardIndex % dummyCards.length];
+    cardIndex++;
+  }
+  
+  // Ensure it's exactly 10 characters
+  boardCardsString = boardCardsString.substring(0, 10);
+  
+  const requestData = {
+    players: activePlayers.map((player, index) => ({
+      player_id: player.id,
+      position: player.id - 1, // Position based on player ID
+      hole_cards: player.holeCards.join(''),
+      stack_size: player.stackSize + player.totalBet,
+      actions: player.actions,
+      folded: player.folded
+    })),
+    board_cards: boardCardsString,
+    pot_size: state.pot,
+    small_blind: state.smallBlind,
+    big_blind: state.bigBlind
+  };
     
     try {
       console.log('📡 Sending to backend:', requestData);

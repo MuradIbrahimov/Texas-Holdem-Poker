@@ -1,26 +1,24 @@
 -- Initialize poker database tables
 -- This file is automatically executed when PostgreSQL container starts
 
--- Create hands table to store completed poker hands
+CREATE DATABASE IF NOT EXISTS poker_db;
+
+-- Create hands table
 CREATE TABLE IF NOT EXISTS hands (
     id SERIAL PRIMARY KEY,
-    players_data JSONB NOT NULL,
-    board_cards VARCHAR(20) NOT NULL,
-    pot_size INTEGER NOT NULL,
-    small_blind INTEGER NOT NULL DEFAULT 20,
-    big_blind INTEGER NOT NULL DEFAULT 40,
-    results JSONB NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    uuid VARCHAR(36) UNIQUE NOT NULL,
+    players_data TEXT,
+    board_cards VARCHAR(10),
+    pot_size INTEGER,
+    small_blind INTEGER DEFAULT 20,
+    big_blind INTEGER DEFAULT 40,
+    results TEXT,
+    completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Create index on created_at for faster ordering (newest first)
-CREATE INDEX IF NOT EXISTS idx_hands_created_at ON hands(created_at DESC);
-
--- Create index on players_data for faster player-specific queries
-CREATE INDEX IF NOT EXISTS idx_hands_players_data ON hands USING GIN (players_data);
-
--- Create index on pot_size for analytics queries
-CREATE INDEX IF NOT EXISTS idx_hands_pot_size ON hands(pot_size);
+-- Create index for faster queries
+CREATE INDEX idx_hands_completed_at ON hands(completed_at DESC);
+CREATE INDEX idx_hands_uuid ON hands(uuid);
 
 -- Insert sample data for testing (optional - remove in production)
 -- Sample hand 1: Aces vs Kings

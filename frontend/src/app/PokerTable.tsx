@@ -4,6 +4,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { useGameStore } from '../store/gameStore';
+import HandHistory from './HandHistory'; // Import the new component
+
 
 // Types
 interface CardProps {
@@ -330,33 +332,7 @@ const PlayLog: React.FC = () => {
   );
 };
 
-// Hand History component
-const HandHistory: React.FC = () => {
-  const { handHistory } = useGameStore();
-  
-  return (
-    <div className="p-4 bg-slate-800 border border-slate-600 rounded-lg shadow-lg">
-      <h3 className="text-lg font-semibold mb-4 text-white">📜 Hand History</h3>
-      <div className="text-xs space-y-2 max-h-40 overflow-y-auto">
-        {handHistory.length === 0 ? (
-          <div className="text-gray-400 italic">No hands played yet</div>
-        ) : (
-          handHistory.map((hand, index) => (
-            <div key={index} className="bg-slate-700 p-2 rounded border border-slate-600">
-              <div className="text-yellow-400 font-medium">Hand #{hand.handNumber}</div>
-              <div className="text-green-300">Winner: Player {hand.winners.join(', Player ')}</div>
-              <div className="text-blue-300">Pot: {hand.pot}</div>
-              <div className="text-gray-300">Street: {hand.finalStreet}</div>
-              <div className="text-gray-400 text-xs">{hand.completedAt}</div>
-            </div>
-          ))
-        )}
-      </div>
-    </div>
-  );
-};
 
-// Main Poker Table component
 const PokerTable: React.FC = () => {
   const { players, currentPlayer, gameState, winners, evaluateHand } = useGameStore();
   
@@ -404,7 +380,7 @@ const PokerTable: React.FC = () => {
             <Setup />
             <ActionButtons />
             <PlayLog />
-            <HandHistory />
+            <HandHistory /> {/* Use the imported HandHistory component */}
           </div>
           
           {/* Right column - Players 4-6 */}
