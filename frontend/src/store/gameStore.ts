@@ -1,4 +1,4 @@
-// frontend/src/store/gameStore.ts - Fixed TypeScript module
+// frontend/src/store/gameStore.ts - Complete fix for all issues
 
 import { create } from 'zustand';
 
@@ -41,6 +41,7 @@ interface GameState {
   handCounter: number;
   players: Player[];
   boardCards: string[];
+  playersActedThisStreet: Set<number>; // Track who acted this street
   
   // Actions
   resetGame: () => void;
@@ -107,23 +108,56 @@ function getValidActions(state: GameState, playerId: number): string[] {
   return actions;
 }
 
+function isBettingRoundComplete(state: GameState, players: Player[]): boolean {
+  const activePlayers = players.filter(p => !p.folded);
+  const currentBet = Math.max(...players.map(p => p.currentBet));
+  
+  // All active players must have acted this street
+  const activePlayerIds = activePlayers.filter(p => !p.allIn).map(p => p.id);
+  const allActedThisStreet = activePlayerIds.every(id => state.playersActedThisStreet.has(id));
+  
+  if (!allActedThisStreet) {
+    return false;
+  }
+  
+  // All active players must either match current bet or be all-in
+  for (const player of activePlayers) {
+    if (!player.allIn && player.currentBet < currentBet) {
+      return false;
+    }
+  }
+  
+  return true;
+}
+
 function getNextGameState(state: GameState, players: Player[]) {
   const activePlayers = players.filter(p => !p.folded);
   
+  // Hand finished if only one player left
   if (activePlayers.length <= 1) {
     return { nextPlayer: state.currentPlayer, shouldAdvanceStreet: false, handFinished: true };
   }
   
-  const currentBet = Math.max(...players.map(p => p.currentBet));
-  const playersWithAction = activePlayers.filter(p => !p.allIn && p.currentBet < currentBet);
-  
-  if (playersWithAction.length === 0) {
+  // Check if betting round is complete
+  if (isBettingRoundComplete(state, players)) {
     return { nextPlayer: 0, shouldAdvanceStreet: true, handFinished: false };
   }
   
+  // Find next player to act
   let nextPlayer = (state.currentPlayer + 1) % 6;
-  while (players[nextPlayer].folded || players[nextPlayer].allIn) {
+  let attempts = 0;
+  
+  while (attempts < 6) {
+    const player = players[nextPlayer];
+    if (!player.folded && !player.allIn) {
+      break;
+    }
     nextPlayer = (nextPlayer + 1) % 6;
+    attempts++;
+  }
+  
+  if (attempts >= 6) {
+    return { nextPlayer: state.currentPlayer, shouldAdvanceStreet: false, handFinished: true };
   }
   
   return { nextPlayer, shouldAdvanceStreet: false, handFinished: false };
@@ -158,6 +192,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   actionLog: [],
   handHistory: [],
   handCounter: 0,
+  playersActedThisStreet: new Set(),
   
   players: Array.from({ length: 6 }, (_, i) => ({
     id: i + 1,
@@ -173,6 +208,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   boardCards: [],
   
   resetGame: () => set((state) => {
+    console.log('🎮 Reset game called');
     const deck = generateDeck();
     shuffle(deck);
     
@@ -186,6 +222,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       actions: []
     }));
     
+    // Post blinds
     newPlayers[1].currentBet = state.smallBlind;
     newPlayers[1].totalBet = state.smallBlind;
     newPlayers[1].stackSize -= state.smallBlind;
@@ -197,25 +234,32 @@ export const useGameStore = create<GameState>((set, get) => ({
       ...state,
       gameState: 'playing',
       currentStreet: 'preflop',
-      currentPlayer: 3,
+      currentPlayer: 3, // UTG
       pot: state.smallBlind + state.bigBlind,
       players: newPlayers,
       boardCards: [],
       deck: deck,
       winners: [],
       actionLog: [`New hand started - Hand #${state.handCounter + 1}`, `SB: Player 2 (${state.smallBlind})`, `BB: Player 3 (${state.bigBlind})`],
-      handCounter: state.handCounter + 1
+      handCounter: state.handCounter + 1,
+      playersActedThisStreet: new Set() // Reset acted players
     };
   }),
   
-  setStackSizes: (stacks: number[]) => set((state) => ({
-    players: state.players.map((player, index) => ({
-      ...player,
-      stackSize: stacks[index] || player.stackSize
-    }))
-  })),
+  setStackSizes: (stacks: number[]) => set((state) => {
+    console.log('💰 Setting stack sizes:', stacks);
+    return {
+      ...state,
+      players: state.players.map((player, index) => ({
+        ...player,
+        stackSize: stacks[index] || player.stackSize
+      }))
+    };
+  }),
   
   playerAction: (playerId: number, action: string, amount: number = 0) => set((state) => {
+    console.log(`🎯 Player ${playerId} action: ${action} ${amount}`);
+    
     if (state.gameState !== 'playing') return state;
     
     const playerIndex = playerId - 1;
@@ -226,6 +270,10 @@ export const useGameStore = create<GameState>((set, get) => ({
     
     let actionAmount = amount;
     const currentBet = getCurrentBet(state);
+    
+    // Mark this player as having acted this street
+    const newPlayersActedThisStreet = new Set(state.playersActedThisStreet);
+    newPlayersActedThisStreet.add(playerId);
     
     switch (action) {
       case 'fold':
@@ -254,6 +302,9 @@ export const useGameStore = create<GameState>((set, get) => ({
         player.totalBet += actionAmount;
         player.stackSize -= actionAmount;
         if (player.stackSize === 0) player.allIn = true;
+        // Reset acted players when someone bets/raises
+        newPlayersActedThisStreet.clear();
+        newPlayersActedThisStreet.add(playerId);
         break;
         
       case 'all_in':
@@ -262,6 +313,11 @@ export const useGameStore = create<GameState>((set, get) => ({
         player.totalBet += actionAmount;
         player.stackSize = 0;
         player.allIn = true;
+        // Reset acted players when someone goes all-in with a raise
+        if (player.currentBet > currentBet) {
+          newPlayersActedThisStreet.clear();
+          newPlayersActedThisStreet.add(playerId);
+        }
         break;
         
       default:
@@ -278,15 +334,20 @@ export const useGameStore = create<GameState>((set, get) => ({
     });
     
     const newPot = state.pot + actionAmount;
-    let { nextPlayer, shouldAdvanceStreet, handFinished } = getNextGameState(state, newPlayers);
+    let { nextPlayer, shouldAdvanceStreet, handFinished } = getNextGameState({
+      ...state,
+      playersActedThisStreet: newPlayersActedThisStreet
+    }, newPlayers);
     
     let newStreet = state.currentStreet;
     let newGameState: 'setup' | 'playing' | 'finished' = state.gameState;
     let newBoardCards = [...state.boardCards];
     let newWinners: number[] = [];
     let newHandHistory = [...state.handHistory];
-      
+    let finalPlayersActedThisStreet = newPlayersActedThisStreet;
+    
     if (handFinished) {
+      console.log('🏁 Hand finished!');
       newGameState = 'finished';
       newBoardCards = getBoardCardsForStreet('river', state.deck);
       
@@ -294,12 +355,15 @@ export const useGameStore = create<GameState>((set, get) => ({
       if (activePlayers.length === 1) {
         newWinners = [activePlayers[0].id];
         activePlayers[0].stackSize += newPot;
+        newActionLog.push(`🏆 Player ${activePlayers[0].id} wins the pot (${newPot})!`);
       } else {
+        // Multiple players - split pot for now (could add hand evaluation later)
         newWinners = activePlayers.map(p => p.id);
         const winAmount = Math.floor(newPot / activePlayers.length);
         activePlayers.forEach(p => {
           p.stackSize += winAmount;
         });
+        newActionLog.push(`🏆 Split pot! Players ${newWinners.join(', ')} each win ${winAmount}`);
       }
       
       newHandHistory.push({
@@ -310,21 +374,19 @@ export const useGameStore = create<GameState>((set, get) => ({
         completedAt: new Date().toLocaleTimeString()
       });
       
-      newActionLog.push(`Hand finished! Winners: Player ${newWinners.join(', Player ')}`);
-      
     } else if (shouldAdvanceStreet) {
+      console.log('⬆️ Advancing street');
       const currentStreetIndex = STREET_ORDER.indexOf(state.currentStreet);
       if (currentStreetIndex < STREET_ORDER.length - 1) {
         newStreet = STREET_ORDER[currentStreetIndex + 1];
         newBoardCards = getBoardCardsForStreet(newStreet, state.deck);
-        // Reset current bets for new street and clear street actions
-        newPlayers.forEach(p => { 
-          p.currentBet = 0; 
-          // Don't clear all actions, just note that new street started
-        });
+        newPlayers.forEach(p => { p.currentBet = 0; });
         newActionLog.push(`--- ${newStreet.toUpperCase()} ---`);
         
-        // Start new street with first active player after button
+        // Reset acted players for new street
+        finalPlayersActedThisStreet = new Set();
+        
+        // Start with first active player
         let firstToAct = 0;
         while (newPlayers[firstToAct].folded || newPlayers[firstToAct].allIn) {
           firstToAct = (firstToAct + 1) % 6;
@@ -346,7 +408,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       boardCards: newBoardCards,
       winners: newWinners,
       actionLog: newActionLog,
-      handHistory: newHandHistory
+      handHistory: newHandHistory,
+      playersActedThisStreet: finalPlayersActedThisStreet
     };
   }),
   

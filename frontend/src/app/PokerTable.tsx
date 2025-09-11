@@ -1,8 +1,8 @@
-// frontend/src/app/PokerTable.tsx - Fixed TypeScript component
+// frontend/src/app/PokerTable.tsx - Fixed with all issues resolved
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useGameStore } from '../store/gameStore';
 
 // Types
@@ -35,7 +35,9 @@ const Card: React.FC<CardProps> = ({ card, hidden = false }) => {
     );
   }
 
-  if (!card) return null;
+  if (!card) return (
+    <div className="w-12 h-16 bg-gray-200 border border-gray-300 rounded shadow-sm"></div>
+  );
 
   const suit = card[1];
   const rank = card[0];
@@ -89,7 +91,12 @@ const Player: React.FC<PlayerProps> = ({ player, position, isCurrentPlayer, isWi
 // Setup component
 const Setup: React.FC = () => {
   const { players, setStackSizes, resetGame, gameState } = useGameStore();
-  const [stacks, setStacks] = useState<number[]>(players.map(p => p.stackSize));
+  const [stacks, setStacks] = useState<number[]>(() => players.map(p => p.stackSize));
+
+  // Update stacks when players change
+  useEffect(() => {
+    setStacks(players.map(p => p.stackSize));
+  }, [players]);
 
   const handleStackChange = (index: number, value: string) => {
     const newStacks = [...stacks];
@@ -98,6 +105,8 @@ const Setup: React.FC = () => {
   };
 
   const handleReset = () => {
+    console.log('🔄 Setup: Reset button clicked');
+    console.log('Current stacks:', stacks);
     setStackSizes(stacks);
     resetGame();
   };
@@ -118,6 +127,9 @@ const Setup: React.FC = () => {
               onChange={(e) => handleStackChange(index, e.target.value)}
               className="w-full p-2 border rounded bg-white text-slate-800 font-medium"
               disabled={gameState === 'playing'}
+              min={100}
+              max={10000}
+              step={100}
             />
           </div>
         ))}
@@ -129,6 +141,12 @@ const Setup: React.FC = () => {
       >
         {gameState === 'setup' ? '🚀 Start Game' : '🔄 Reset Game'}
       </button>
+      
+      <div className="text-sm text-indigo-100 mt-2">
+        {gameState === 'setup' 
+          ? 'Set stack sizes and click Start to begin' 
+          : 'Click Reset to start a new hand'}
+      </div>
     </div>
   );
 };
@@ -155,6 +173,7 @@ const ActionButtons: React.FC = () => {
   const callAmount = currentBet - currentPlayerData.currentBet;
   
   const handleAction = (action: string) => {
+    console.log(`🎯 Action button: ${action} for player ${currentPlayer + 1}`);
     if (action === 'bet' || action === 'raise') {
       playerAction(currentPlayer + 1, action, betAmount);
     } else {
@@ -279,8 +298,8 @@ const Board: React.FC = () => {
           💰 Pot: {pot}
         </div>
         {gameState === 'finished' && winners.length > 0 && (
-          <div className="text-yellow-200 text-md font-medium mt-2">
-            🏆 Winner(s): Player {winners.join(', Player ')}
+          <div className="text-yellow-200 text-lg font-bold mt-2 bg-yellow-600 bg-opacity-20 p-2 rounded">
+            🏆 WINNER(S): Player {winners.join(', Player ')}!
           </div>
         )}
       </div>
@@ -300,7 +319,7 @@ const PlayLog: React.FC = () => {
   
   return (
     <div className="p-4 bg-slate-800 border border-slate-600 rounded-lg shadow-lg">
-      <h3 className="text-lg font-semibold mb-4 text-white">Play Log</h3>
+      <h3 className="text-lg font-semibold mb-4 text-white">📝 Play Log</h3>
       <div className="text-sm space-y-1 max-h-40 overflow-y-auto">
         <div className="font-medium text-yellow-400">Street: {currentStreet.toUpperCase()}</div>
         {actionLog.map((log, index) => (
@@ -328,6 +347,7 @@ const HandHistory: React.FC = () => {
               <div className="text-green-300">Winner: Player {hand.winners.join(', Player ')}</div>
               <div className="text-blue-300">Pot: {hand.pot}</div>
               <div className="text-gray-300">Street: {hand.finalStreet}</div>
+              <div className="text-gray-400 text-xs">{hand.completedAt}</div>
             </div>
           ))
         )}
@@ -338,7 +358,15 @@ const HandHistory: React.FC = () => {
 
 // Main Poker Table component
 const PokerTable: React.FC = () => {
-  const { players, currentPlayer, gameState, winners } = useGameStore();
+  const { players, currentPlayer, gameState, winners, evaluateHand } = useGameStore();
+  
+  // Auto-evaluate when game enters 'evaluating' state
+  React.useEffect(() => {
+    if (gameState === 'evaluating') {
+      console.log('🎯 Auto-triggering hand evaluation...');
+      evaluateHand();
+    }
+  }, [gameState, evaluateHand]);
   
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4">
@@ -346,6 +374,15 @@ const PokerTable: React.FC = () => {
         <h1 className="text-4xl font-bold text-center mb-8 text-white bg-gradient-to-r from-yellow-400 to-orange-500 bg-clip-text text-transparent">
           🃏 Texas Hold'em Poker 🃏
         </h1>
+        
+        {/* Show evaluation status */}
+        {gameState === 'evaluating' && (
+          <div className="text-center mb-4">
+            <div className="bg-yellow-600 bg-opacity-20 text-yellow-200 p-3 rounded-lg border border-yellow-600">
+              🎯 Evaluating hands... Please wait
+            </div>
+          </div>
+        )}
         
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left column - Players 1-3 */}
