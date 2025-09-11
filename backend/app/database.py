@@ -1,3 +1,5 @@
+# backend/app/database.py - Complete the missing database methods
+
 import os
 import psycopg2
 from contextlib import contextmanager
@@ -88,4 +90,4 @@ class DatabaseConnection:
         with self.get_connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(query, params)
-                return cursor.fetchone()[0]
+                return cursor.fetchone()[0] if cursor.rowcount > 0 else None

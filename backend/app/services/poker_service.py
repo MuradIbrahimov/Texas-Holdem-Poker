@@ -1,3 +1,5 @@
+# backend/app/services/poker_service.py - Complete implementation with bug fixes
+
 from typing import List, Dict, Tuple
 from pokerkit import Card, StandardHighHand
 try:
@@ -6,9 +8,7 @@ except ImportError:
     from repositories.hand_repository import HandRepository
 
 
-class PokerService:
-    """Service for poker hand evaluation and winner calculation"""
-    
+class PokerService:    
     def __init__(self, hand_repo: HandRepository):
         self.hand_repo = hand_repo
     
@@ -60,77 +60,58 @@ class PokerService:
         }
     
     def _evaluate_all_hands(self, players: List[dict], board_cards: str) -> Dict[int, Tuple]:
-        """
-        Evaluate all player hands
-        Returns dict of player_id -> (best_hand_object, hand_description)
-        """
         evaluations = {}
-        
+
         for player in players:
-            # Skip folded players
             if not player.get('hole_cards') or player.get('folded', False):
                 continue
-            
-            # Use StandardHighHand.from_game to get best 5-card hand from hole cards + board
+
             best_hand = StandardHighHand.from_game(
                 player['hole_cards'],
                 board_cards
             )
-            
-            # Store the hand object and description
+
             evaluations[player['player_id']] = (
-                best_hand,  # Keep the hand object for comparison
-                str(best_hand)  # String representation for description
+                best_hand,        # Keep full hand object for comparison
+                str(best_hand)    # Use string for readable description
             )
-        
+
         return evaluations
-    
+
     def _calculate_winnings(self, evaluations: Dict, pot_size: int, players: List[dict]) -> Tuple:
-        """
-        Calculate winnings based on hand evaluations
-        Returns (winners_list, winnings_by_player_dict, best_hands_dict)
-        """
         if not evaluations:
             return [], {}, {}
-        
-        # Compare hands using the built-in comparison operators
-        # In pokerkit, hands can be compared directly: better hand > worse hand
-        best_hand = max(hand for hand, _ in evaluations.values())
-        
-        # Find all winners (players whose hand equals the best hand)
+
+        # Find the best hand using pokerkit comparisons
+        best_hand = min(hand for hand, _ in evaluations.values())
+
+        # Winners are all players whose hand equals best_hand
         winners = [
-            player_id for player_id, (hand, _) in evaluations.items() 
+            player_id for player_id, (hand, _) in evaluations.items()
             if hand == best_hand
         ]
-        
-        # Calculate winnings
+
         winnings_by_player = {}
-        
-        # Winners split the pot
         if winners:
             win_amount = pot_size // len(winners)
             remainder = pot_size % len(winners)
-            
             for i, winner_id in enumerate(winners):
-                # Give remainder chips to first winner(s)
                 winnings_by_player[winner_id] = win_amount + (1 if i < remainder else 0)
-        
-        # Calculate losses for non-winners
+
+        # Non-winners lose
         for player in players:
             player_id = player['player_id']
             if player_id not in winnings_by_player:
-                # Calculate how much this player put in the pot (simplified)
                 player_contribution = self._estimate_player_contribution(player)
                 winnings_by_player[player_id] = -player_contribution
-        
-        # Prepare best hands dictionary with descriptions
+
+        # Return best hands in readable format
         best_hands = {
-            str(player_id): desc 
-            for player_id, (_, desc) in evaluations.items()
+            str(player_id): desc for player_id, (_, desc) in evaluations.items()
         }
-        
+
         return winners, winnings_by_player, best_hands
-    
+
     def _estimate_player_contribution(self, player: dict) -> int:
         """
         Estimate how much a player contributed to the pot based on their actions
