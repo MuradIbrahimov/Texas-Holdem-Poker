@@ -1,12 +1,32 @@
-// frontend/src/app/PokerTable.tsx - Complete poker table with all components
+// frontend/src/app/PokerTable.tsx - Fixed TypeScript component
 
 'use client';
 
 import React, { useState } from 'react';
 import { useGameStore } from '../store/gameStore';
 
+// Types
+interface CardProps {
+  card?: string;
+  hidden?: boolean;
+}
+
+interface PlayerProps {
+  player: {
+    id: number;
+    stackSize: number;
+    currentBet: number;
+    holeCards: string[];
+    folded: boolean;
+    allIn: boolean;
+  };
+  position: number;
+  isCurrentPlayer: boolean;
+  isWinner: boolean;
+}
+
 // Card component
-const Card = ({ card, hidden = false }) => {
+const Card: React.FC<CardProps> = ({ card, hidden = false }) => {
   if (hidden) {
     return (
       <div className="w-12 h-16 bg-blue-600 border border-gray-300 rounded shadow-sm flex items-center justify-center">
@@ -21,28 +41,32 @@ const Card = ({ card, hidden = false }) => {
   const rank = card[0];
   const isRed = suit === 'h' || suit === 'd';
   
-  const suitSymbol = {
+  const suitSymbol: { [key: string]: string } = {
     'h': '♥',
     'd': '♦', 
     'c': '♣',
     's': '♠'
-  }[suit];
+  };
 
   return (
     <div className={`w-12 h-16 bg-white border border-gray-300 rounded shadow-sm flex flex-col items-center justify-center ${isRed ? 'text-red-500' : 'text-black'}`}>
       <div className="text-xs font-bold">{rank}</div>
-      <div className="text-sm">{suitSymbol}</div>
+      <div className="text-sm">{suitSymbol[suit]}</div>
     </div>
   );
 };
 
 // Player component
-const Player = ({ player, position, isCurrentPlayer }) => {
+const Player: React.FC<PlayerProps> = ({ player, position, isCurrentPlayer, isWinner }) => {
   return (
-    <div className={`p-3 border rounded-lg ${isCurrentPlayer ? 'bg-yellow-100 border-yellow-400' : 'bg-white border-gray-300'} ${player.folded ? 'opacity-50' : ''}`}>
+    <div className={`p-3 border-2 rounded-lg shadow-lg ${
+      isWinner ? 'bg-gradient-to-br from-yellow-200 to-amber-300 border-yellow-500' :
+      isCurrentPlayer ? 'bg-gradient-to-br from-blue-100 to-cyan-200 border-blue-500 ring-2 ring-blue-300' : 
+      'bg-gradient-to-br from-slate-100 to-slate-200 border-slate-400'
+    } ${player.folded ? 'opacity-60 grayscale' : ''}`}>
       <div className="flex items-center justify-between mb-2">
-        <h4 className="font-semibold">Player {player.id}</h4>
-        <span className="text-sm text-gray-600">Pos {position}</span>
+        <h4 className="font-bold text-slate-800">Player {player.id}</h4>
+        <span className="text-sm font-medium text-slate-600">Pos {position}</span>
       </div>
       
       <div className="flex gap-1 mb-2">
@@ -51,22 +75,23 @@ const Player = ({ player, position, isCurrentPlayer }) => {
         ))}
       </div>
       
-      <div className="text-sm space-y-1">
-        <div>Stack: {player.stackSize}</div>
-        <div>Bet: {player.currentBet}</div>
-        {player.folded && <div className="text-red-500">FOLDED</div>}
-        {player.allIn && <div className="text-orange-500">ALL IN</div>}
+      <div className="text-sm space-y-1 font-medium">
+        <div className="text-green-700">Stack: {player.stackSize}</div>
+        <div className="text-blue-700">Bet: {player.currentBet}</div>
+        {player.folded && <div className="text-red-600 font-bold">FOLDED</div>}
+        {player.allIn && <div className="text-orange-600 font-bold">ALL IN</div>}
+        {isWinner && <div className="text-yellow-700 font-bold">🏆 WINNER!</div>}
       </div>
     </div>
   );
 };
 
 // Setup component
-const Setup = () => {
+const Setup: React.FC = () => {
   const { players, setStackSizes, resetGame, gameState } = useGameStore();
-  const [stacks, setStacks] = useState(players.map(p => p.stackSize));
+  const [stacks, setStacks] = useState<number[]>(players.map(p => p.stackSize));
 
-  const handleStackChange = (index, value) => {
+  const handleStackChange = (index: number, value: string) => {
     const newStacks = [...stacks];
     newStacks[index] = parseInt(value) || 1000;
     setStacks(newStacks);
@@ -78,20 +103,20 @@ const Setup = () => {
   };
 
   return (
-    <div className="p-4 bg-white border rounded-lg shadow-sm">
-      <h3 className="text-lg font-semibold mb-4">Game Setup</h3>
+    <div className="p-4 bg-gradient-to-br from-indigo-600 to-purple-700 border-2 border-indigo-500 rounded-lg shadow-lg">
+      <h3 className="text-lg font-semibold mb-4 text-white">🎮 Game Setup</h3>
       
       <div className="grid grid-cols-3 gap-2 mb-4">
         {stacks.map((stack, index) => (
           <div key={index}>
-            <label className="block text-sm font-medium mb-1">
+            <label className="block text-sm font-medium mb-1 text-indigo-100">
               Player {index + 1}
             </label>
             <input
               type="number"
               value={stack}
               onChange={(e) => handleStackChange(index, e.target.value)}
-              className="w-full p-2 border rounded"
+              className="w-full p-2 border rounded bg-white text-slate-800 font-medium"
               disabled={gameState === 'playing'}
             />
           </div>
@@ -100,16 +125,16 @@ const Setup = () => {
       
       <button
         onClick={handleReset}
-        className="w-full px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+        className="w-full px-4 py-3 bg-gradient-to-r from-orange-500 to-red-600 text-white font-bold rounded-lg hover:from-orange-600 hover:to-red-700 transition-all duration-200 shadow-md"
       >
-        {gameState === 'setup' ? 'Start Game' : 'Reset Game'}
+        {gameState === 'setup' ? '🚀 Start Game' : '🔄 Reset Game'}
       </button>
     </div>
   );
 };
 
 // Action Buttons component
-const ActionButtons = () => {
+const ActionButtons: React.FC = () => {
   const { 
     players, 
     currentPlayer, 
@@ -120,7 +145,7 @@ const ActionButtons = () => {
     getCurrentBet 
   } = useGameStore();
   
-  const [betAmount, setBetAmount] = useState(bigBlind * 2);
+  const [betAmount, setBetAmount] = useState<number>(bigBlind * 2);
   
   if (gameState !== 'playing') return null;
   
@@ -129,7 +154,7 @@ const ActionButtons = () => {
   const currentBet = getCurrentBet();
   const callAmount = currentBet - currentPlayerData.currentBet;
   
-  const handleAction = (action) => {
+  const handleAction = (action: string) => {
     if (action === 'bet' || action === 'raise') {
       playerAction(currentPlayer + 1, action, betAmount);
     } else {
@@ -137,7 +162,7 @@ const ActionButtons = () => {
     }
   };
   
-  const adjustBetAmount = (increment) => {
+  const adjustBetAmount = (increment: number) => {
     const newAmount = betAmount + increment;
     const minBet = currentBet > 0 ? currentBet + bigBlind : bigBlind;
     const maxBet = currentPlayerData.stackSize + currentPlayerData.currentBet;
@@ -145,11 +170,10 @@ const ActionButtons = () => {
     setBetAmount(Math.max(minBet, Math.min(newAmount, maxBet)));
   };
   
-  // Disable all actions if player is folded or all-in
   if (currentPlayerData.folded || currentPlayerData.allIn) {
     return (
-      <div className="p-4 bg-gray-100 rounded">
-        <p className="text-center text-gray-600">
+      <div className="p-4 bg-gradient-to-br from-gray-600 to-gray-700 rounded-lg border-2 border-gray-500">
+        <p className="text-center text-gray-200 font-medium">
           Player {currentPlayer + 1} {currentPlayerData.folded ? 'has folded' : 'is all-in'}
         </p>
       </div>
@@ -157,9 +181,9 @@ const ActionButtons = () => {
   }
   
   return (
-    <div className="p-4 bg-white border rounded-lg shadow-sm">
-      <h3 className="text-lg font-semibold mb-4">
-        Player {currentPlayer + 1} Action
+    <div className="p-4 bg-gradient-to-br from-slate-700 to-slate-800 border-2 border-slate-600 rounded-lg shadow-lg">
+      <h3 className="text-lg font-semibold mb-4 text-white">
+        🎯 Player {currentPlayer + 1} Action
       </h3>
       
       <div className="flex flex-wrap gap-2 mb-4">
@@ -167,7 +191,7 @@ const ActionButtons = () => {
         <button
           onClick={() => handleAction('fold')}
           disabled={!validActions.includes('fold')}
-          className="px-4 py-2 bg-red-500 text-white rounded disabled:bg-gray-300"
+          className="px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg font-medium disabled:from-gray-400 disabled:to-gray-500 hover:from-red-600 hover:to-red-700 transition-all duration-200"
         >
           Fold
         </button>
@@ -176,7 +200,7 @@ const ActionButtons = () => {
         {validActions.includes('check') && (
           <button
             onClick={() => handleAction('check')}
-            className="px-4 py-2 bg-green-500 text-white rounded"
+            className="px-4 py-2 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg font-medium hover:from-green-600 hover:to-green-700 transition-all duration-200"
           >
             Check
           </button>
@@ -186,7 +210,7 @@ const ActionButtons = () => {
         {validActions.includes('call') && callAmount > 0 && (
           <button
             onClick={() => handleAction('call')}
-            className="px-4 py-2 bg-blue-500 text-white rounded"
+            className="px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg font-medium hover:from-blue-600 hover:to-blue-700 transition-all duration-200"
           >
             Call {callAmount}
           </button>
@@ -197,7 +221,7 @@ const ActionButtons = () => {
           <div className="flex items-center gap-2">
             <button
               onClick={() => adjustBetAmount(-bigBlind)}
-              className="px-2 py-1 bg-gray-300 rounded"
+              className="px-3 py-2 bg-gray-500 text-white rounded font-bold hover:bg-gray-600 transition-colors"
               disabled={betAmount <= (currentBet > 0 ? currentBet + bigBlind : bigBlind)}
             >
               -
@@ -205,7 +229,7 @@ const ActionButtons = () => {
             
             <button
               onClick={() => handleAction(validActions.includes('bet') ? 'bet' : 'raise')}
-              className="px-4 py-2 bg-purple-500 text-white rounded"
+              className="px-4 py-2 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg font-medium hover:from-purple-600 hover:to-purple-700 transition-all duration-200"
               disabled={betAmount > currentPlayerData.stackSize + currentPlayerData.currentBet}
             >
               {validActions.includes('bet') ? 'Bet' : 'Raise'} {betAmount}
@@ -213,7 +237,7 @@ const ActionButtons = () => {
             
             <button
               onClick={() => adjustBetAmount(bigBlind)}
-              className="px-2 py-1 bg-gray-300 rounded"
+              className="px-3 py-2 bg-gray-500 text-white rounded font-bold hover:bg-gray-600 transition-colors"
               disabled={betAmount >= currentPlayerData.stackSize + currentPlayerData.currentBet}
             >
               +
@@ -225,33 +249,43 @@ const ActionButtons = () => {
         {validActions.includes('all_in') && currentPlayerData.stackSize > 0 && (
           <button
             onClick={() => handleAction('all_in')}
-            className="px-4 py-2 bg-orange-500 text-white rounded font-bold"
+            className="px-4 py-2 bg-gradient-to-r from-orange-500 to-orange-600 text-white rounded-lg font-bold hover:from-orange-600 hover:to-orange-700 transition-all duration-200"
           >
             All In ({currentPlayerData.stackSize})
           </button>
         )}
       </div>
       
-      <div className="text-sm text-gray-600">
-        <p>Stack: {currentPlayerData.stackSize}</p>
-        <p>Current bet: {currentPlayerData.currentBet}</p>
-        <p>To call: {callAmount}</p>
+      <div className="text-sm text-gray-300 space-y-1">
+        <p>💰 Stack: {currentPlayerData.stackSize}</p>
+        <p>🎯 Current bet: {currentPlayerData.currentBet}</p>
+        <p>📞 To call: {callAmount}</p>
       </div>
     </div>
   );
 };
 
 // Board component
-const Board = () => {
-  const { boardCards, currentStreet, pot } = useGameStore();
+const Board: React.FC = () => {
+  const { boardCards, currentStreet, pot, winners, gameState } = useGameStore();
   
   return (
-    <div className="p-4 bg-green-700 border rounded-lg shadow-sm text-center">
-      <h3 className="text-white text-lg font-semibold mb-4">
-        {currentStreet.toUpperCase()} - Pot: {pot}
-      </h3>
+    <div className="p-6 bg-gradient-to-br from-green-700 to-emerald-800 border-2 border-green-600 rounded-lg shadow-xl">
+      <div className="text-center mb-4">
+        <h3 className="text-white text-xl font-bold mb-2">
+          {currentStreet.toUpperCase()}
+        </h3>
+        <div className="text-yellow-300 text-lg font-semibold">
+          💰 Pot: {pot}
+        </div>
+        {gameState === 'finished' && winners.length > 0 && (
+          <div className="text-yellow-200 text-md font-medium mt-2">
+            🏆 Winner(s): Player {winners.join(', Player ')}
+          </div>
+        )}
+      </div>
       
-      <div className="flex gap-2 justify-center">
+      <div className="flex gap-3 justify-center">
         {Array.from({ length: 5 }, (_, index) => (
           <Card key={index} card={boardCards[index]} />
         ))}
@@ -260,8 +294,25 @@ const Board = () => {
   );
 };
 
+// Play Log component
+const PlayLog: React.FC = () => {
+  const { actionLog, currentStreet } = useGameStore();
+  
+  return (
+    <div className="p-4 bg-slate-800 border border-slate-600 rounded-lg shadow-lg">
+      <h3 className="text-lg font-semibold mb-4 text-white">Play Log</h3>
+      <div className="text-sm space-y-1 max-h-40 overflow-y-auto">
+        <div className="font-medium text-yellow-400">Street: {currentStreet.toUpperCase()}</div>
+        {actionLog.map((log, index) => (
+          <div key={index} className="text-green-300">{log}</div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 // Hand History component
-const HandHistory = () => {
+const HandHistory: React.FC = () => {
   const { handHistory } = useGameStore();
   
   return (
@@ -285,42 +336,16 @@ const HandHistory = () => {
   );
 };
 
-// Play Log component
-const PlayLog = () => {
-  const { players, currentStreet } = useGameStore();
-  
-  const getLastActions = () => {
-    const actions = [];
-    players.forEach(player => {
-      const lastAction = player.actions[player.actions.length - 1];
-      if (lastAction) {
-        actions.push(`P${player.id}: ${lastAction.action}${lastAction.amount ? ` ${lastAction.amount}` : ''}`);
-      }
-    });
-    return actions;
-  };
-  
-  return (
-    <div className="p-4 bg-white border rounded-lg shadow-sm">
-      <h3 className="text-lg font-semibold mb-4">Play Log</h3>
-      <div className="text-sm space-y-1 max-h-32 overflow-y-auto">
-        <div className="font-medium">Current: {currentStreet}</div>
-        {getLastActions().map((action, index) => (
-          <div key={index} className="text-gray-600">{action}</div>
-        ))}
-      </div>
-    </div>
-  );
-};
-
 // Main Poker Table component
-export default function PokerTable() {
-  const { players, currentPlayer, gameState } = useGameStore();
+const PokerTable: React.FC = () => {
+  const { players, currentPlayer, gameState, winners } = useGameStore();
   
   return (
-    <div className="min-h-screen bg-gray-100 p-4">
-      <div className="max-w-6xl mx-auto">
-        <h1 className="text-3xl font-bold text-center mb-6">Texas Hold'em Poker</h1>
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4">
+      <div className="max-w-7xl mx-auto">
+        <h1 className="text-4xl font-bold text-center mb-8 text-white bg-gradient-to-r from-yellow-400 to-orange-500 bg-clip-text text-transparent">
+          🃏 Texas Hold'em Poker 🃏
+        </h1>
         
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left column - Players 1-3 */}
@@ -331,6 +356,7 @@ export default function PokerTable() {
                 player={player} 
                 position={index}
                 isCurrentPlayer={gameState === 'playing' && currentPlayer === index}
+                isWinner={winners.includes(player.id)}
               />
             ))}
           </div>
@@ -341,6 +367,7 @@ export default function PokerTable() {
             <Setup />
             <ActionButtons />
             <PlayLog />
+            <HandHistory />
           </div>
           
           {/* Right column - Players 4-6 */}
@@ -351,6 +378,7 @@ export default function PokerTable() {
                 player={player} 
                 position={index + 3}
                 isCurrentPlayer={gameState === 'playing' && currentPlayer === index + 3}
+                isWinner={winners.includes(player.id)}
               />
             ))}
           </div>
@@ -358,4 +386,6 @@ export default function PokerTable() {
       </div>
     </div>
   );
-}
+};
+
+export default PokerTable;
