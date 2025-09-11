@@ -216,44 +216,105 @@ export const useGameStore = create<GameState>((set, get) => ({
   
   boardCards: [],
   
-  resetGame: () => set((state) => {
-    console.log('🎮 Reset game called');
-    const deck = generateDeck();
-    shuffle(deck);
+// Update the resetGame function in gameStore.ts
+
+resetGame: () => set((state) => {
+  console.log('🎮 Reset game called');
+  const deck = generateDeck();
+  shuffle(deck);
+  
+  // Filter out players who can't afford to play
+  const playablePlayers = state.players.filter(p => p.stackSize >= 40);
+  
+  if (playablePlayers.length < 2) {
+    console.log('❌ Not enough players with sufficient funds');
+    alert('At least 2 players need 40+ chips to play!');
+    return state; // Don't start the game
+  }
+  
+  const newPlayers = state.players.map((player, index) => {
+    // Mark broke players as folded from the start
+    const canPlay = player.stackSize >= 40;
     
-    const newPlayers = state.players.map((player, index) => ({
+    const newPlayer = {
       ...player,
-      holeCards: [deck[index * 2], deck[index * 2 + 1]],
+      holeCards: canPlay ? [deck[index * 2], deck[index * 2 + 1]] : [],
       currentBet: 0,
       totalBet: 0,
-      folded: false,
+      folded: !canPlay, // Automatically fold broke players
       allIn: false,
       actions: []
-    }));
-    
-    // Post blinds
-    newPlayers[1].currentBet = state.smallBlind;
-    newPlayers[1].totalBet = state.smallBlind;
-    newPlayers[1].stackSize -= state.smallBlind;
-    newPlayers[2].currentBet = state.bigBlind;
-    newPlayers[2].totalBet = state.bigBlind;
-    newPlayers[2].stackSize -= state.bigBlind;
-    
-    return {
-      ...state,
-      gameState: 'playing',
-      currentStreet: 'preflop',
-      currentPlayer: 3, // UTG
-      pot: state.smallBlind + state.bigBlind,
-      players: newPlayers,
-      boardCards: [],
-      deck: deck,
-      winners: [],
-      actionLog: [`New hand started - Hand #${state.handCounter + 1}`, `SB: Player 2 (${state.smallBlind})`, `BB: Player 3 (${state.bigBlind})`],
-      handCounter: state.handCounter + 1,
-      playersActedThisStreet: new Set()
     };
-  }),
+    
+    // Only post blinds if player can afford it
+    if (index === 1 && canPlay && player.stackSize >= state.smallBlind) {
+      // Small blind
+      newPlayer.currentBet = Math.min(state.smallBlind, player.stackSize);
+      newPlayer.totalBet = newPlayer.currentBet;
+      newPlayer.stackSize -= newPlayer.currentBet;
+      if (newPlayer.stackSize === 0) newPlayer.allIn = true;
+    } else if (index === 2 && canPlay && player.stackSize >= state.bigBlind) {
+      // Big blind
+      newPlayer.currentBet = Math.min(state.bigBlind, player.stackSize);
+      newPlayer.totalBet = newPlayer.currentBet;
+      newPlayer.stackSize -= newPlayer.currentBet;
+      if (newPlayer.stackSize === 0) newPlayer.allIn = true;
+    }
+    
+    return newPlayer;
+  });
+  
+  // Calculate initial pot
+  const initialPot = newPlayers.reduce((sum, p) => sum + p.currentBet, 0);
+  
+  // Find first player to act (skip folded/broke players)
+  let firstToAct = 3; // UTG position
+  while (firstToAct < 6 && (newPlayers[firstToAct].folded || newPlayers[firstToAct].allIn)) {
+    firstToAct++;
+  }
+  if (firstToAct >= 6) {
+    // Wrap around if needed
+    firstToAct = 0;
+    while (firstToAct < 6 && (newPlayers[firstToAct].folded || newPlayers[firstToAct].allIn)) {
+      firstToAct++;
+    }
+  }
+  
+  // Build action log
+  const actionLog = [`New hand started - Hand #${state.handCounter + 1}`];
+  
+  // Add blind postings to log
+  if (newPlayers[1].currentBet > 0) {
+    actionLog.push(`SB: Player 2 (${newPlayers[1].currentBet})`);
+  }
+  if (newPlayers[2].currentBet > 0) {
+    actionLog.push(`BB: Player 3 (${newPlayers[2].currentBet})`);
+  }
+  
+  // Note broke players
+  const brokePlayers = state.players
+    .map((p, i) => p.stackSize < 40 ? i + 1 : null)
+    .filter(p => p !== null);
+  
+  if (brokePlayers.length > 0) {
+    actionLog.push(`Players out (insufficient funds): ${brokePlayers.join(', ')}`);
+  }
+  
+  return {
+    ...state,
+    gameState: 'playing',
+    currentStreet: 'preflop',
+    currentPlayer: firstToAct,
+    pot: initialPot,
+    players: newPlayers,
+    boardCards: [],
+    deck: deck,
+    winners: [],
+    actionLog: actionLog,
+    handCounter: state.handCounter + 1,
+    playersActedThisStreet: new Set()
+  };
+}),
   
   setStackSizes: (stacks: number[]) => set((state) => {
     console.log('💰 Setting stack sizes:', stacks);
@@ -435,7 +496,8 @@ export const useGameStore = create<GameState>((set, get) => ({
     };
   }),
   
-  evaluateHand: async () => {
+ 
+evaluateHand: async () => {
   const state = get();
   console.log('🎲 Evaluating hands...');
   
@@ -473,7 +535,6 @@ export const useGameStore = create<GameState>((set, get) => ({
   let boardCardsString = state.boardCards.join('');
   
   // If we don't have enough cards, pad with dummy valid cards
-  // This ensures the backend always gets valid card format
   const dummyCards = ['2c', '2d', '2h', '2s', '3c'];
   let cardIndex = 0;
   
@@ -485,122 +546,137 @@ export const useGameStore = create<GameState>((set, get) => ({
   // Ensure it's exactly 10 characters
   boardCardsString = boardCardsString.substring(0, 10);
   
+  // Prepare player data with CORRECT positions
+  // In 6-max: Position 0 = Button, Position 1 = SB, Position 2 = BB, etc.
   const requestData = {
-    players: activePlayers.map((player, index) => ({
-      player_id: player.id,
-      position: player.id - 1, // Position based on player ID
-      hole_cards: player.holeCards.join(''),
-      stack_size: player.stackSize + player.totalBet,
-      actions: player.actions,
-      folded: player.folded
-    })),
+    players: state.players
+      .filter(p => !p.folded)  // Only include non-folded players
+      .map(player => {
+        // Determine actual position based on player ID
+        // Player 1 = BTN (position 0)
+        // Player 2 = SB (position 1)
+        // Player 3 = BB (position 2)
+        // Player 4 = UTG (position 3)
+        // Player 5 = UTG+1 (position 4)
+        // Player 6 = CO (position 5)
+        const position = player.id - 1;
+        
+        return {
+          player_id: player.id,
+          position: position,  // Actual position in the game
+          hole_cards: player.holeCards.join(''),
+          stack_size: player.stackSize + player.totalBet,
+          actions: player.actions,
+          folded: player.folded
+        };
+      }),
     board_cards: boardCardsString,
     pot_size: state.pot,
     small_blind: state.smallBlind,
     big_blind: state.bigBlind
   };
+  
+  try {
+    console.log('📡 Sending to backend:', requestData);
     
-    try {
-      console.log('📡 Sending to backend:', requestData);
-      
-      const response = await fetch('http://localhost:8000/hands', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestData)
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ API Error:', errorText);
-        throw new Error('API request failed');
+    const response = await fetch('http://localhost:8000/hands', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestData)
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ API Error:', errorText);
+      throw new Error('API request failed');
+    }
+    
+    const result: HandEvaluation = await response.json();
+    console.log('✅ Evaluation result:', result);
+    
+    // Update game state with results
+    const newPlayers = [...state.players];
+    const newActionLog = [...state.actionLog];
+    const newHandHistory = [...state.handHistory];
+    
+    // Update winner stacks based on winnings
+    Object.entries(result.winnings_by_player).forEach(([playerId, winnings]) => {
+      const player = newPlayers.find(p => p.id === parseInt(playerId));
+      if (player && winnings > 0) {
+        player.stackSize += winnings;
       }
-      
-      const result: HandEvaluation = await response.json();
-      console.log('✅ Evaluation result:', result);
-      
-      // Update game state with results
+    });
+    
+    // Add winner announcement to log
+    if (result.winners.length === 1) {
+      const winnerId = result.winners[0];
+      const handDesc = result.best_hands[winnerId] || 'Best hand';
+      newActionLog.push(`🏆 Player ${winnerId} wins ${state.pot} chips with ${handDesc}!`);
+    } else {
+      newActionLog.push(`🏆 Split pot! Players ${result.winners.join(', ')} split ${state.pot} chips!`);
+    }
+    
+    // Add hand details to log
+    Object.entries(result.best_hands).forEach(([playerId, hand]) => {
+      newActionLog.push(`Player ${playerId}: ${hand}`);
+    });
+    
+    // Add to hand history
+    newHandHistory.push({
+      handNumber: state.handCounter,
+      winners: result.winners,
+      pot: state.pot,
+      finalStreet: state.currentStreet,
+      completedAt: new Date().toLocaleTimeString()
+    });
+    
+    set({
+      ...state,
+      players: newPlayers,
+      winners: result.winners,
+      gameState: 'finished',
+      actionLog: newActionLog,
+      handHistory: newHandHistory
+    });
+    
+  } catch (error) {
+    console.error('❌ Error evaluating hand:', error);
+    
+    // Fallback: simple random winner for offline mode
+    const activePlayers = state.players.filter(p => !p.folded);
+    if (activePlayers.length > 0) {
+      const winner = activePlayers[Math.floor(Math.random() * activePlayers.length)];
       const newPlayers = [...state.players];
-      const newActionLog = [...state.actionLog];
-      const newHandHistory = [...state.handHistory];
-      
-      // Update winner stacks based on winnings
-      Object.entries(result.winnings_by_player).forEach(([playerId, winnings]) => {
-        const player = newPlayers.find(p => p.id === parseInt(playerId));
-        if (player && winnings > 0) {
-          player.stackSize += winnings;
-        }
-      });
-      
-      // Add winner announcement to log
-      if (result.winners.length === 1) {
-        const winnerId = result.winners[0];
-        const handDesc = result.best_hands[winnerId] || 'Best hand';
-        newActionLog.push(`🏆 Player ${winnerId} wins ${state.pot} chips with ${handDesc}!`);
-      } else {
-        newActionLog.push(`🏆 Split pot! Players ${result.winners.join(', ')} split ${state.pot} chips!`);
+      const winnerInArray = newPlayers.find(p => p.id === winner.id);
+      if (winnerInArray) {
+        winnerInArray.stackSize += state.pot;
       }
-      
-      // Add hand details to log
-      Object.entries(result.best_hands).forEach(([playerId, hand]) => {
-        newActionLog.push(`Player ${playerId}: ${hand}`);
-      });
-      
-      // Add to hand history
-      newHandHistory.push({
-        handNumber: state.handCounter,
-        winners: result.winners,
-        pot: state.pot,
-        finalStreet: state.currentStreet,
-        completedAt: new Date().toLocaleTimeString()
-      });
       
       set({
         ...state,
         players: newPlayers,
-        winners: result.winners,
+        winners: [winner.id],
         gameState: 'finished',
-        actionLog: newActionLog,
-        handHistory: newHandHistory
+        actionLog: [
+          ...state.actionLog,
+          `🏆 Player ${winner.id} wins ${state.pot} chips! (offline/random evaluation)`
+        ],
+        handHistory: [
+          ...state.handHistory,
+          {
+            handNumber: state.handCounter,
+            winners: [winner.id],
+            pot: state.pot,
+            finalStreet: state.currentStreet,
+            completedAt: new Date().toLocaleTimeString()
+          }
+        ]
       });
-      
-    } catch (error) {
-      console.error('❌ Error evaluating hand:', error);
-      
-      // Fallback: simple random winner for offline mode
-      const activePlayers = state.players.filter(p => !p.folded);
-      if (activePlayers.length > 0) {
-        const winner = activePlayers[Math.floor(Math.random() * activePlayers.length)];
-        const newPlayers = [...state.players];
-        const winnerInArray = newPlayers.find(p => p.id === winner.id);
-        if (winnerInArray) {
-          winnerInArray.stackSize += state.pot;
-        }
-        
-        set({
-          ...state,
-          players: newPlayers,
-          winners: [winner.id],
-          gameState: 'finished',
-          actionLog: [
-            ...state.actionLog,
-            `🏆 Player ${winner.id} wins ${state.pot} chips! (offline/random evaluation)`
-          ],
-          handHistory: [
-            ...state.handHistory,
-            {
-              handNumber: state.handCounter,
-              winners: [winner.id],
-              pot: state.pot,
-              finalStreet: state.currentStreet,
-              completedAt: new Date().toLocaleTimeString()
-            }
-          ]
-        });
-      }
     }
-  },
+  }
+},
   
   fetchHandHistory: async () => {
     try {

@@ -1,7 +1,7 @@
 // frontend/src/__tests__/gameStore.test.ts
 
 import { renderHook, act } from '@testing-library/react';
-import { useGameStore } from '../store/gameStore';
+import { useGameStore } from '../src/store/gameStore';
 
 describe('GameStore Integration Tests', () => {
   beforeEach(() => {

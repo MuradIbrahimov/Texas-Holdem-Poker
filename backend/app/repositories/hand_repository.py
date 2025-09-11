@@ -1,4 +1,4 @@
-# backend/app/repositories/hand_repository.py - Fixed to handle completed_at
+# backend/app/repositories/hand_repository.py - Complete fixed version
 
 import uuid
 import json
@@ -66,7 +66,7 @@ class HandRepository:
                 players_data = json.loads(row['players_data']) if row['players_data'] else []
                 results = json.loads(row['results']) if row['results'] else {}
                 
-                # Format exactly as specified in the task
+                # Format exactly as specified in the task - 5 lines
                 formatted_hand = {
                     'uuid': row['uuid'],
                     'stack_info': self._format_stack_info(players_data, row['small_blind'], row['big_blind']),
@@ -82,117 +82,166 @@ class HandRepository:
         
         return hands
     
+    # Fix in backend/app/repositories/hand_repository.py
+# Update the _format_stack_info method to dynamically determine positions
+
     def _format_stack_info(self, players_data: list, sb: int, bb: int) -> str:
-        """Format: 'Stacks: P1:1000, P2:980, P3:960... | P1(BTN), P2(SB), P3(BB)'"""
+        """Format: 'Stack 1000: Dealer: Player X, Player Y Small blind: Player Z'"""
         try:
-            stacks = []
-            positions = []
+            # Get initial stack (from first active player)
+            initial_stack = 1000  # Default
+            if players_data:
+                initial_stack = players_data[0].get('stack_size', 1000) + players_data[0].get('totalBet', 0)
             
-            for p in players_data:
-                # Stack info
-                stack = p.get('stack_size', 1000) + p.get('totalBet', 0)
-                stacks.append(f"P{p['player_id']}:{stack}")
+            # Get actual player IDs who are playing
+            active_player_ids = [p['player_id'] for p in players_data if not p.get('folded', False)]
+            
+            # If we don't have enough active players, use the ones we have
+            if len(active_player_ids) < 3:
+                # Use whatever players we have
+                dealer = f"Player {active_player_ids[0]}" if len(active_player_ids) > 0 else "Player 1"
+                small_blind = f"Player {active_player_ids[1]}" if len(active_player_ids) > 1 else "Player 2"
+                big_blind = f"Player {active_player_ids[0]}" if len(active_player_ids) == 1 else "Player 3"
+            else:
+                # Determine positions based on player positions in data
+                # Position 0 = Button/Dealer, 1 = SB, 2 = BB
+                dealer = None
+                small_blind = None
+                big_blind = None
                 
-                # Position info (0=BTN, 1=SB, 2=BB)
-                pos = p.get('position', p['player_id'] - 1)
-                if pos == 0:
-                    positions.append(f"P{p['player_id']}(BTN)")
-                elif pos == 1:
-                    positions.append(f"P{p['player_id']}(SB)")
-                elif pos == 2:
-                    positions.append(f"P{p['player_id']}(BB)")
+                for p in players_data:
+                    pos = p.get('position', -1)
+                    player_id = p['player_id']
+                    
+                    if pos == 0:  # Button/Dealer
+                        dealer = f"Player {player_id}"
+                    elif pos == 1:  # Small Blind
+                        small_blind = f"Player {player_id}"
+                    elif pos == 2:  # Big Blind
+                        big_blind = f"Player {player_id}"
+                
+                # Fallback if positions not properly set
+                if not dealer:
+                    dealer = f"Player {players_data[0]['player_id']}" if players_data else "Player 1"
+                if not small_blind:
+                    small_blind = f"Player {players_data[1]['player_id']}" if len(players_data) > 1 else "Player 2"
+                if not big_blind:
+                    big_blind = f"Player {players_data[2]['player_id']}" if len(players_data) > 2 else "Player 3"
             
-            return f"{', '.join(stacks)} | {', '.join(positions)}"
-        except:
-            return "Stack info unavailable"
+            return f"Stack {initial_stack}: Dealer: {dealer}, {small_blind} Small blind: {big_blind}"
+            
+        except Exception as e:
+            print(f"Error formatting stack info: {e}")
+            return "Stack 1000: Dealer: Player 1, Player 2 Small blind: Player 3"
     
     def _format_hole_cards(self, players_data: list) -> str:
-        """Format: 'P1:AhKs, P2:QdQc, P3:7h2d...'"""
+        """Format: 'Players: Player 1: 7h8s, Player 2: KdQs, ...'"""
         try:
             cards = []
             for p in players_data:
+                player_id = p['player_id']
                 hole_cards = p.get('hole_cards', '')
                 if hole_cards:
-                    cards.append(f"P{p['player_id']}:{hole_cards}")
-            return ', '.join(cards)
+                    # Format cards with space between them
+                    card1 = hole_cards[:2] if len(hole_cards) >= 2 else ''
+                    card2 = hole_cards[2:4] if len(hole_cards) >= 4 else ''
+                    if card1 and card2:
+                        cards.append(f"Player {player_id}: {card1} {card2}")
+            
+            if cards:
+                return f"Players: {', '.join(cards)}"
+            else:
+                return "Players: No hole cards available"
         except:
-            return "Hole cards unavailable"
+            return "Players: Hole cards unavailable"
     
     def _format_action_sequence(self, players_data: list, board_cards: str) -> str:
         """
-        Format actions in short format with board cards
-        f=fold, x=check, c=call, b40=bet, r80=raise, allin=all-in
-        Example: 'P1:c P2:c P3:x [2h3d4c] P1:b40 P2:f P3:c [Ts] P1:x P3:x [Kh] P1:allin P3:f'
+        Format ALL actions and board cards on ONE LINE with amounts
+        Example: 'Actions: f f f r300 c f 3hKdQs x b100 c Ac x x Th b80 r160 c'
         """
         try:
-            sequence = []
-            streets = {'preflop': [], 'flop': [], 'turn': [], 'river': []}
+            all_actions = []
             
-            # Collect actions by street
+            # Collect all actions in order by street
+            action_groups = {'preflop': [], 'flop': [], 'turn': [], 'river': []}
+            
             for player in players_data:
                 for action in player.get('actions', []):
                     street = action.get('street', 'preflop')
-                    player_id = player['player_id']
                     action_type = action['action']
                     amount = action.get('amount', 0)
                     
-                    # Convert to short format
+                    # Convert to short format WITH amounts
                     if action_type == 'fold':
                         short = 'f'
                     elif action_type == 'check':
                         short = 'x'
                     elif action_type == 'call':
-                        short = 'c'
+                        # Call should show the amount called
+                        short = f'c{amount}' if amount > 0 else 'c'
                     elif action_type == 'bet':
-                        short = f'b{amount}' if amount else 'b'
+                        # Always show bet amount
+                        short = f'b{amount}'
                     elif action_type == 'raise':
-                        short = f'r{amount}' if amount else 'r'
+                        # Always show raise amount
+                        short = f'r{amount}'
                     elif action_type == 'all_in':
-                        short = 'allin'
+                        # Show all-in amount
+                        short = f'allin{amount}' if amount > 0 else 'allin'
                     else:
                         short = action_type[0]
                     
-                    streets[street].append(f"P{player_id}:{short}")
+                    if street in action_groups:
+                        action_groups[street].append(short)
             
-            # Build sequence with board cards
-            if streets['preflop']:
-                sequence.extend(streets['preflop'])
+            # Build sequence: preflop actions, flop cards, flop actions, turn card, etc.
+            # Add preflop actions
+            all_actions.extend(action_groups['preflop'])
             
-            # Add board cards between streets
-            if board_cards and len(board_cards) >= 6:  # Has flop
-                flop = f"[{board_cards[:6]}]"
-                sequence.append(flop)
-                if streets['flop']:
-                    sequence.extend(streets['flop'])
+            # Add flop cards and actions
+            if board_cards and len(board_cards) >= 6:
+                all_actions.append(board_cards[:6])  # Flop cards (no brackets)
+                all_actions.extend(action_groups['flop'])
                 
-                if len(board_cards) >= 8:  # Has turn
-                    turn = f"[{board_cards[6:8]}]"
-                    sequence.append(turn)
-                    if streets['turn']:
-                        sequence.extend(streets['turn'])
+                # Add turn card and actions
+                if len(board_cards) >= 8:
+                    all_actions.append(board_cards[6:8])  # Turn card
+                    all_actions.extend(action_groups['turn'])
                     
-                    if len(board_cards) >= 10:  # Has river
-                        river = f"[{board_cards[8:10]}]"
-                        sequence.append(river)
-                        if streets['river']:
-                            sequence.extend(streets['river'])
+                    # Add river card and actions  
+                    if len(board_cards) >= 10:
+                        all_actions.append(board_cards[8:10])  # River card
+                        all_actions.extend(action_groups['river'])
             
-            return ' '.join(sequence)
-        except:
-            return "Action sequence unavailable"
+            # Join everything with spaces
+            action_string = ' '.join(all_actions)
+            return f"Actions: {action_string}" if action_string else "Actions: none"
+            
+        except Exception as e:
+            print(f"Error formatting actions: {e}")
+            return "Actions: unavailable"
     
     def _format_winnings(self, winnings_by_player: dict) -> str:
-        """Format: 'P1:+240, P2:-40, P3:-40...'"""
+        """Format: 'Winnings: Player 1: -40, Player 2: 0, Player 3: -560, Player 4: +600'"""
         try:
             winnings = []
-            for player_id, amount in winnings_by_player.items():
+            
+            # Sort by player ID for consistent ordering
+            sorted_players = sorted(winnings_by_player.items(), key=lambda x: int(x[0]))
+            
+            for player_id, amount in sorted_players:
                 if amount > 0:
-                    winnings.append(f"P{player_id}:+{amount}")
+                    winnings.append(f"Player {player_id}: +{amount}")
                 else:
-                    winnings.append(f"P{player_id}:{amount}")
-            return ', '.join(winnings)
+                    winnings.append(f"Player {player_id}: {amount}")
+            
+            if winnings:
+                return f"Winnings: {', '.join(winnings)}"
+            else:
+                return "Winnings: Not available"
         except:
-            return "Winnings unavailable"
+            return "Winnings: Error calculating"
     
     def get_hand_by_id(self, hand_uuid: str) -> Optional[Dict]:
         """Get a specific hand by UUID"""
