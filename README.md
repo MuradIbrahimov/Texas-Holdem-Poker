@@ -79,11 +79,6 @@ cd backend
 poetry run pytest
 ```
 
-### PEP8 Compliance
-```bash
-cd backend
-poetry run flake8 app/
-```
 
 ## Project Structure
 
