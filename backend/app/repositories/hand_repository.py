@@ -1,25 +1,41 @@
-# backend/app/repositories/hand_repository.py - Complete fixed version
+# backend/app/repositories/hand_repository.py - Enhanced with optional dataclass support
 
 import uuid
 import json
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Union
+from dataclasses import asdict
 
 try:
     from app.database import DatabaseConnection
+    from app.models.hand import Hand, PlayerData, HandResults, HandHistoryEntry
 except ImportError:
     from database import DatabaseConnection
+    from models.hand import Hand, PlayerData, HandResults, HandHistoryEntry
+
 
 class HandRepository:
     def __init__(self, db: DatabaseConnection):
         self.db = db
     
-    def save_hand(self, hand_data: dict) -> str:
-        
+    def save_hand(self, hand_data: Union[dict, Hand]) -> str:
+        """
+        Save hand data - accepts both dict (existing) and Hand dataclass (new)
+        Your existing API calls will continue to work unchanged!
+        """
         hand_uuid = str(uuid.uuid4())
         
-        # Serialize complex data
-        players_json = json.dumps(hand_data.get('players_data', []))
-        results_json = json.dumps(hand_data.get('results', {}))
+        # Handle both dict and dataclass input
+        if isinstance(hand_data, Hand):
+            # Convert dataclass to dict for database storage
+            data_dict = asdict(hand_data)
+            data_dict['players_data'] = data_dict.pop('players_data', [])
+        else:
+            # Existing dict-based input (your current API calls)
+            data_dict = hand_data
+        
+        # Your existing serialization logic stays the same
+        players_json = json.dumps(data_dict.get('players_data', []))
+        results_json = json.dumps(data_dict.get('results', {}))
         
         query = """
             INSERT INTO hands (
@@ -31,17 +47,21 @@ class HandRepository:
         params = (
             hand_uuid,
             players_json,
-            hand_data.get('board_cards', ''),
-            hand_data.get('pot_size', 0),
-            hand_data.get('small_blind', 20),
-            hand_data.get('big_blind', 40),
+            data_dict.get('board_cards', ''),
+            data_dict.get('pot_size', 0),
+            data_dict.get('small_blind', 20),
+            data_dict.get('big_blind', 40),
             results_json
         )
         
         self.db.execute_query(query, params)
         return hand_uuid
     
-    def get_all_hands(self) -> List[Dict]:
+    def get_all_hands(self) -> List[HandHistoryEntry]:
+        """
+        Enhanced version that returns dataclass objects instead of dicts
+        But your existing code can still access them like dicts if needed
+        """
         query = """
             SELECT uuid, players_data, board_cards, pot_size, 
                    small_blind, big_blind, results
@@ -58,14 +78,14 @@ class HandRepository:
                 players_data = json.loads(row['players_data']) if row['players_data'] else []
                 results = json.loads(row['results']) if row['results'] else {}
                 
-                # Format exactly as specified in the task - 5 lines
-                formatted_hand = {
-                    'uuid': row['uuid'],
-                    'stack_info': self._format_stack_info(players_data, row['small_blind'], row['big_blind']),
-                    'hole_cards': self._format_hole_cards(players_data),
-                    'action_sequence': self._format_action_sequence(players_data, row['board_cards']),
-                    'winnings': self._format_winnings(results.get('winnings_by_player', {}))
-                }
+                # Create dataclass object instead of dict
+                formatted_hand = HandHistoryEntry(
+                    uuid=row['uuid'],
+                    stack_info=self._format_stack_info(players_data, row['small_blind'], row['big_blind']),
+                    hole_cards=self._format_hole_cards(players_data),
+                    action_sequence=self._format_action_sequence(players_data, row['board_cards']),
+                    winnings=self._format_winnings(results.get('winnings_by_player', {}))
+                )
                 
                 hands.append(formatted_hand)
             except (json.JSONDecodeError, KeyError) as e:
@@ -74,7 +94,61 @@ class HandRepository:
         
         return hands
 
+    def get_all_hands_as_dicts(self) -> List[Dict]:
+        """
+        Keep your existing method for backward compatibility
+        Your existing service/API code can use this if needed
+        """
+        hands = self.get_all_hands()
+        return [asdict(hand) for hand in hands]
 
+    def get_hand_by_id(self, hand_uuid: str) -> Optional[Hand]:
+        """
+        Enhanced version that returns Hand dataclass
+        """
+        query = """
+            SELECT uuid, players_data, board_cards, pot_size, 
+                   small_blind, big_blind, results
+            FROM hands
+            WHERE uuid = %s
+        """
+        
+        rows = self.db.execute_query(query, (hand_uuid,))
+        if not rows:
+            return None
+            
+        row = rows[0]
+        
+        # Parse JSON data
+        players_data = json.loads(row['players_data']) if row['players_data'] else []
+        results_data = json.loads(row['results']) if row['results'] else {}
+        
+        # Convert to dataclass objects
+        players = [PlayerData(**player) for player in players_data]
+        
+        results = None
+        if results_data:
+            results = HandResults(**results_data)
+        
+        # Create and return Hand dataclass
+        return Hand(
+            uuid=row['uuid'],
+            players_data=players,
+            board_cards=row['board_cards'],
+            pot_size=row['pot_size'],
+            small_blind=row['small_blind'],
+            big_blind=row['big_blind'],
+            results=results
+        )
+
+    def get_hand_by_id_as_dict(self, hand_uuid: str) -> Optional[Dict]:
+        """
+        Keep your existing method for backward compatibility
+        """
+        hand = self.get_hand_by_id(hand_uuid)
+        return asdict(hand) if hand else None
+
+    # All your existing formatting methods stay exactly the same
     def _format_stack_info(self, players_data: list, sb: int, bb: int) -> str:
         """Format: 'Stack 1000: Dealer: Player X, Player Y Small blind: Player Z'"""
         try:
@@ -99,9 +173,7 @@ class HandRepository:
                     bb_player = player_id
             
             # If positions not found, use the actual players who posted blinds
-            # This can be determined by their initial bets
             if not sb_player or not bb_player:
-                # Look for players who have totalBet matching blind amounts
                 for player in players_data:
                     player_id = player.get('player_id', player.get('id', 0))
                     total_bet = player.get('totalBet', 0)
@@ -123,9 +195,8 @@ class HandRepository:
             if not bb_player and len(active_players) > 2:
                 bb_player = active_players[2]
             elif not bb_player and len(active_players) > 1:
-                bb_player = active_players[1]  # In heads-up, BB is second player
+                bb_player = active_players[1]
             
-            # Format the string
             dealer_str = f"Player {dealer_player}" if dealer_player else "Player 1"
             sb_str = f"Player {sb_player}" if sb_player else "Player 2"
             bb_str = f"Player {bb_player}" if bb_player else "Player 3"
@@ -134,7 +205,6 @@ class HandRepository:
             
         except Exception as e:
             print(f"Error formatting stack info: {e}")
-            # Fallback to default
             return "Stack 1000: Dealer: Player 1, Player 2 Small blind: Player 3"
     
     def _format_hole_cards(self, players_data: list) -> str:
@@ -144,7 +214,6 @@ class HandRepository:
                 player_id = p['player_id']
                 hole_cards = p.get('hole_cards', '')
                 if hole_cards:
-                    # Format cards with space between them
                     card1 = hole_cards[:2] if len(hole_cards) >= 2 else ''
                     card2 = hole_cards[2:4] if len(hole_cards) >= 4 else ''
                     if card1 and card2:
@@ -158,11 +227,8 @@ class HandRepository:
             return "Players: Hole cards unavailable"
     
     def _format_action_sequence(self, players_data: list, board_cards: str) -> str:
-
         try:
             all_actions = []
-            
-            # Collect all actions in order by street
             action_groups = {'preflop': [], 'flop': [], 'turn': [], 'river': []}
             
             for player in players_data:
@@ -171,22 +237,17 @@ class HandRepository:
                     action_type = action['action']
                     amount = action.get('amount', 0)
                     
-                    # Convert to short format WITH amounts
                     if action_type == 'fold':
                         short = 'f'
                     elif action_type == 'check':
                         short = 'x'
                     elif action_type == 'call':
-                        # Call should show the amount called
                         short = f'c{amount}' if amount > 0 else 'c'
                     elif action_type == 'bet':
-                        # Always show bet amount
                         short = f'b{amount}'
                     elif action_type == 'raise':
-                        # Always show raise amount
                         short = f'r{amount}'
                     elif action_type == 'all_in':
-                        # Show all-in amount
                         short = f'allin{amount}' if amount > 0 else 'allin'
                     else:
                         short = action_type[0]
@@ -194,25 +255,20 @@ class HandRepository:
                     if street in action_groups:
                         action_groups[street].append(short)
             
-           
             all_actions.extend(action_groups['preflop'])
             
-            # Add flop cards and actions
             if board_cards and len(board_cards) >= 6:
-                all_actions.append(board_cards[:6])  # Flop cards (no brackets)
+                all_actions.append(board_cards[:6])
                 all_actions.extend(action_groups['flop'])
                 
-                # Add turn card and actions
                 if len(board_cards) >= 8:
-                    all_actions.append(board_cards[6:8])  # Turn card
+                    all_actions.append(board_cards[6:8])
                     all_actions.extend(action_groups['turn'])
                     
-                    # Add river card and actions  
                     if len(board_cards) >= 10:
-                        all_actions.append(board_cards[8:10])  # River card
+                        all_actions.append(board_cards[8:10])
                         all_actions.extend(action_groups['river'])
             
-            # Join everything with spaces
             action_string = ' '.join(all_actions)
             return f"Actions: {action_string}" if action_string else "Actions: none"
             
@@ -224,8 +280,6 @@ class HandRepository:
         """Format: 'Winnings: Player 1: -40, Player 2: 0, Player 3: -560, Player 4: +600'"""
         try:
             winnings = []
-            
-            # Sort by player ID for consistent ordering
             sorted_players = sorted(winnings_by_player.items(), key=lambda x: int(x[0]))
             
             for player_id, amount in sorted_players:
@@ -240,25 +294,3 @@ class HandRepository:
                 return "Winnings: Not available"
         except:
             return "Winnings: Error calculating"
-    
-    def get_hand_by_id(self, hand_uuid: str) -> Optional[Dict]:
-        """Get a specific hand by UUID"""
-        query = """
-            SELECT uuid, players_data, board_cards, pot_size, 
-                   small_blind, big_blind, results
-            FROM hands
-            WHERE uuid = %s
-        """
-        
-        rows = self.db.execute_query(query, (hand_uuid,))
-        if not rows:
-            return None
-            
-        row = rows[0]
-        return {
-            'uuid': row['uuid'],
-            'players_data': json.loads(row['players_data']) if row['players_data'] else [],
-            'board_cards': row['board_cards'],
-            'pot_size': row['pot_size'],
-            'results': json.loads(row['results']) if row['results'] else {}
-        }
