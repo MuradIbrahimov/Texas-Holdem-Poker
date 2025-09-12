@@ -76,13 +76,26 @@ const Player: React.FC<any> = ({ player, position, isCurrentPlayer, isWinner }) 
 };
 
 // Setup component using shadcn/ui
-const Setup: React.FC = () => {
-  const { players, setStackSizes, resetGame, gameState } = useGameStore();
-  const [stacks, setStacks] = useState<number[]>(() => players.map(p => p.stackSize));
+// Updated Setup component for PokerTable.tsx
 
+const Setup: React.FC = () => {
+  const { players, setStackSizes, resetGame, gameState, handCounter } = useGameStore();
+  const [stacks, setStacks] = useState<number[]>(() => players.map(p => p.stackSize));
+  const [hasGameStarted, setHasGameStarted] = useState(false);
+
+  // Update stacks when players change, but NOT when just posting blinds
   useEffect(() => {
-    setStacks(players.map(p => p.stackSize));
-  }, [players]);
+    // Only update if we're in setup or finished state
+    if (gameState === 'setup' || gameState === 'finished') {
+      setStacks(players.map(p => {
+        // If game has started and player has less than original, keep their current stack
+        if (hasGameStarted && p.stackSize < 1000) {
+          return p.stackSize;
+        }
+        return p.stackSize;
+      }));
+    }
+  }, [players, gameState, hasGameStarted]);
 
   const handleStackChange = (index: number, value: string) => {
     const newStacks = [...stacks];
@@ -91,12 +104,23 @@ const Setup: React.FC = () => {
   };
 
   const handleReset = () => {
+    console.log('🔄 Setup: Reset button clicked');
+    console.log('Current stacks:', stacks);
+    
+    // Update stack sizes to what's shown in the inputs
     setStackSizes(stacks);
+    
+    // Mark that game has started
+    if (!hasGameStarted) {
+      setHasGameStarted(true);
+    }
+    
+    // Then reset the game
     resetGame();
   };
 
   const getButtonText = () => {
-    if (gameState === 'setup') {
+    if (!hasGameStarted || gameState === 'setup') {
       return 'Start';
     } else if (gameState === 'finished') {
       return 'New Hand';
@@ -108,6 +132,35 @@ const Setup: React.FC = () => {
   const canStartGame = () => {
     const playersWithMoney = stacks.filter(stack => stack >= 40).length;
     return playersWithMoney >= 2;
+  };
+
+  // Show which positions will be assigned
+  const getPositionInfo = () => {
+    if (gameState !== 'setup' && gameState !== 'finished') return null;
+    
+    const nextHandNumber = handCounter + 1;
+    let dealerIndex = handCounter % 6;
+    
+    // Find next valid dealer
+    while (stacks[dealerIndex] < 40) {
+      dealerIndex = (dealerIndex + 1) % 6;
+    }
+    
+    let sbIndex = (dealerIndex + 1) % 6;
+    while (stacks[sbIndex] < 40) {
+      sbIndex = (sbIndex + 1) % 6;
+    }
+    
+    let bbIndex = (sbIndex + 1) % 6;
+    while (stacks[bbIndex] < 40) {
+      bbIndex = (bbIndex + 1) % 6;
+    }
+    
+    return (
+      <div className="text-xs text-gray-600 mt-2">
+        Next hand: Dealer P{dealerIndex + 1}, SB P{sbIndex + 1}, BB P{bbIndex + 1}
+      </div>
+    );
   };
 
   return (
@@ -128,13 +181,16 @@ const Setup: React.FC = () => {
                 value={stack}
                 onChange={(e) => handleStackChange(index, e.target.value)}
                 className={stack < 40 ? 'border-red-500' : ''}
-                disabled={gameState === 'playing'}
+                disabled={gameState === 'playing' || gameState === 'evaluating'}
                 min={0}
                 max={10000}
                 step={100}
               />
               {stack < 40 && stack > 0 && (
                 <p className="text-xs text-red-600 mt-1">Below minimum</p>
+              )}
+              {stack === 0 && (
+                <p className="text-xs text-red-600 mt-1">Broke</p>
               )}
             </div>
           ))}
@@ -148,6 +204,8 @@ const Setup: React.FC = () => {
         >
           {getButtonText()}
         </Button>
+        
+        {getPositionInfo()}
         
         {!canStartGame() && (
           <p className="text-sm text-yellow-600 mt-2 font-semibold">

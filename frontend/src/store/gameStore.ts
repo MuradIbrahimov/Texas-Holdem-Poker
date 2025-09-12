@@ -18,6 +18,7 @@ interface PlayerAction {
 interface Player {
   id: number;
   stackSize: number;
+  position?:number;
   currentBet: number;
   totalBet: number;
   holeCards: string[];
@@ -205,6 +206,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   
   players: Array.from({ length: 6 }, (_, i) => ({
     id: i + 1,
+    position: undefined,
     stackSize: 1000,
     currentBet: 0,
     totalBet: 0,
@@ -216,79 +218,112 @@ export const useGameStore = create<GameState>((set, get) => ({
   
   boardCards: [],
   
-// Update the resetGame function in gameStore.ts
+
+// Fix for gameStore.ts - resetGame function with dynamic positions and no double-posting
 
 resetGame: () => set((state) => {
   console.log('🎮 Reset game called');
   const deck = generateDeck();
   shuffle(deck);
   
-  // Filter out players who can't afford to play
+  // Check who can afford to play
   const playablePlayers = state.players.filter(p => p.stackSize >= 40);
   
   if (playablePlayers.length < 2) {
     console.log('❌ Not enough players with sufficient funds');
     alert('At least 2 players need 40+ chips to play!');
-    return state; // Don't start the game
+    return state;
   }
   
+  // Determine dynamic positions based on who can play
+  // Find the dealer position (rotates each hand based on handCounter)
+  let dealerIndex = state.handCounter % 6;
+  
+  // Find next valid dealer among players who can play
+  while (state.players[dealerIndex].stackSize < 40) {
+    dealerIndex = (dealerIndex + 1) % 6;
+  }
+  
+  // Determine SB and BB positions (next two players who can play after dealer)
+  let sbIndex = (dealerIndex + 1) % 6;
+  while (state.players[sbIndex].stackSize < 40) {
+    sbIndex = (sbIndex + 1) % 6;
+  }
+  
+  let bbIndex = (sbIndex + 1) % 6;
+  while (state.players[bbIndex].stackSize < 40) {
+    bbIndex = (bbIndex + 1) % 6;
+  }
+  
+  // Create new players with proper initialization
   const newPlayers = state.players.map((player, index) => {
-    // Mark broke players as folded from the start
     const canPlay = player.stackSize >= 40;
     
+    // Start with fresh player state
     const newPlayer = {
       ...player,
+      // DON'T modify stackSize here - keep it as is
+      stackSize: player.stackSize,
       holeCards: canPlay ? [deck[index * 2], deck[index * 2 + 1]] : [],
       currentBet: 0,
       totalBet: 0,
-      folded: !canPlay, // Automatically fold broke players
+      folded: !canPlay,
       allIn: false,
       actions: []
     };
     
-    // Only post blinds if player can afford it
-    if (index === 1 && canPlay && player.stackSize >= state.smallBlind) {
-      // Small blind
-      newPlayer.currentBet = Math.min(state.smallBlind, player.stackSize);
-      newPlayer.totalBet = newPlayer.currentBet;
-      newPlayer.stackSize -= newPlayer.currentBet;
-      if (newPlayer.stackSize === 0) newPlayer.allIn = true;
-    } else if (index === 2 && canPlay && player.stackSize >= state.bigBlind) {
-      // Big blind
-      newPlayer.currentBet = Math.min(state.bigBlind, player.stackSize);
-      newPlayer.totalBet = newPlayer.currentBet;
-      newPlayer.stackSize -= newPlayer.currentBet;
-      if (newPlayer.stackSize === 0) newPlayer.allIn = true;
-    }
-    
     return newPlayer;
   });
   
-  // Calculate initial pot
-  const initialPot = newPlayers.reduce((sum, p) => sum + p.currentBet, 0);
+  // Now post blinds AFTER creating players
+  let initialPot = 0;
   
-  // Find first player to act (skip folded/broke players)
-  let firstToAct = 3; // UTG position
-  while (firstToAct < 6 && (newPlayers[firstToAct].folded || newPlayers[firstToAct].allIn)) {
-    firstToAct++;
-  }
-  if (firstToAct >= 6) {
-    // Wrap around if needed
-    firstToAct = 0;
-    while (firstToAct < 6 && (newPlayers[firstToAct].folded || newPlayers[firstToAct].allIn)) {
-      firstToAct++;
+  // Post small blind
+  if (newPlayers[sbIndex].stackSize >= state.smallBlind) {
+    const sbAmount = Math.min(state.smallBlind, newPlayers[sbIndex].stackSize);
+    newPlayers[sbIndex].currentBet = sbAmount;
+    newPlayers[sbIndex].totalBet = sbAmount;
+    newPlayers[sbIndex].stackSize -= sbAmount;
+    initialPot += sbAmount;
+    
+    if (newPlayers[sbIndex].stackSize === 0) {
+      newPlayers[sbIndex].allIn = true;
     }
   }
   
-  // Build action log
-  const actionLog = [`New hand started - Hand #${state.handCounter + 1}`];
-  
-  // Add blind postings to log
-  if (newPlayers[1].currentBet > 0) {
-    actionLog.push(`SB: Player 2 (${newPlayers[1].currentBet})`);
+  // Post big blind
+  if (newPlayers[bbIndex].stackSize >= state.bigBlind) {
+    const bbAmount = Math.min(state.bigBlind, newPlayers[bbIndex].stackSize);
+    newPlayers[bbIndex].currentBet = bbAmount;
+    newPlayers[bbIndex].totalBet = bbAmount;
+    newPlayers[bbIndex].stackSize -= bbAmount;
+    initialPot += bbAmount;
+    
+    if (newPlayers[bbIndex].stackSize === 0) {
+      newPlayers[bbIndex].allIn = true;
+    }
   }
-  if (newPlayers[2].currentBet > 0) {
-    actionLog.push(`BB: Player 3 (${newPlayers[2].currentBet})`);
+  
+  // Find first player to act (player after BB who can play)
+  let firstToAct = (bbIndex + 1) % 6;
+  while (newPlayers[firstToAct].folded || newPlayers[firstToAct].allIn) {
+    firstToAct = (firstToAct + 1) % 6;
+    // Prevent infinite loop
+    if (firstToAct === bbIndex) {
+      break;
+    }
+  }
+  
+  // Build action log with dynamic positions
+  const actionLog = [`New hand started - Hand #${state.handCounter + 1}`];
+  actionLog.push(`Dealer: Player ${dealerIndex + 1}`);
+  
+  if (newPlayers[sbIndex].currentBet > 0) {
+    actionLog.push(`SB: Player ${sbIndex + 1} posts ${newPlayers[sbIndex].currentBet}`);
+  }
+  
+  if (newPlayers[bbIndex].currentBet > 0) {
+    actionLog.push(`BB: Player ${bbIndex + 1} posts ${newPlayers[bbIndex].currentBet}`);
   }
   
   // Note broke players
@@ -299,6 +334,11 @@ resetGame: () => set((state) => {
   if (brokePlayers.length > 0) {
     actionLog.push(`Players out (insufficient funds): ${brokePlayers.join(', ')}`);
   }
+  
+  // Store position info in players for backend
+  newPlayers[dealerIndex].position = 0; // Button
+  newPlayers[sbIndex].position = 1;     // SB
+  newPlayers[bbIndex].position = 2;     // BB
   
   return {
     ...state,
