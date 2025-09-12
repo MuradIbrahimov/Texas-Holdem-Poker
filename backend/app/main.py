@@ -140,9 +140,9 @@ def save_and_calculate_hand(
     This is the main endpoint for processing hands
     """
     try:
-        # Convert Pydantic models to dicts
+        # Convert Pydantic models to dicts - use model_dump() instead of dict()
         hand_data = {
-            'players': [player.dict() for player in hand_request.players],
+            'players': [player.model_dump() for player in hand_request.players],  # Changed from .dict() to .model_dump()
             'board_cards': hand_request.board_cards,
             'pot_size': hand_request.pot_size,
             'small_blind': hand_request.small_blind,

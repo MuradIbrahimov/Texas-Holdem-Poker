@@ -1,28 +1,38 @@
-// frontend/jest.config.js
+// frontend/jest.config.js - Complete configuration
 
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'jsdom',
-  moduleNameMapper: {
-    '^@/(.*)$': '<rootDir>/src/$1',
-    '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
-  },
+  roots: ['<rootDir>'],
+  testMatch: [
+    '**/__tests__/**/*.+(ts|tsx|js)',
+    '**/?(*.)+(spec|test).+(ts|tsx|js)'
+  ],
   transform: {
     '^.+\\.(ts|tsx)$': ['ts-jest', {
       tsconfig: {
-        jsx: 'react'
+        jsx: 'react',
+        esModuleInterop: true,
+        allowSyntheticDefaultImports: true
       }
     }]
   },
-  testMatch: [
-    '**/__tests__/**/*.(test|spec).(ts|tsx|js)',
-    '**/*.(test|spec).(ts|tsx|js)'
+  moduleNameMapper: {
+    '^@/(.*)$': '<rootDir>/src/$1',
+    '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
+    '^@/components/ui/(.*)$': '<rootDir>/src/components/ui/$1',
+    '^@/lib/(.*)$': '<rootDir>/src/lib/$1'
+  },
+  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
+  setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
+  testPathIgnorePatterns: ['/node_modules/', '/.next/'],
+  transformIgnorePatterns: [
+    'node_modules/(?!(zustand)/)'
   ],
-  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   collectCoverageFrom: [
     'src/**/*.{ts,tsx}',
     '!src/**/*.d.ts',
-    '!src/**/*.stories.tsx',
-  ],
-  setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
+    '!src/app/layout.tsx',
+    '!src/app/page.tsx'
+  ]
 };
