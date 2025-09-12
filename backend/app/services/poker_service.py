@@ -1,7 +1,5 @@
-# backend/app/services/poker_service.py - Complete implementation with bug fixes
-
 from typing import List, Dict, Tuple
-from pokerkit import Card, StandardHighHand
+from pokerkit import StandardHighHand
 try:
     from app.repositories.hand_repository import HandRepository
 except ImportError:
@@ -48,7 +46,6 @@ class PokerService:
             }
         }
         
-        # Save to database
         hand_uuid = self.hand_repo.save_hand(save_data)
         
         return {
@@ -83,7 +80,7 @@ class PokerService:
             return [], {}, {}
 
         # Find the best hand using pokerkit comparisons
-        best_hand = min(hand for hand, _ in evaluations.values())
+        best_hand = max(hand for hand, _ in evaluations.values())
 
         # Winners are all players whose hand equals best_hand
         winners = [

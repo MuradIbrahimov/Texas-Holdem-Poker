@@ -2,8 +2,7 @@
 
 import uuid
 import json
-from typing import List, Dict, Any, Optional
-from datetime import datetime
+from typing import List, Dict, Optional
 
 try:
     from app.database import DatabaseConnection
@@ -15,10 +14,7 @@ class HandRepository:
         self.db = db
     
     def save_hand(self, hand_data: dict) -> str:
-        """
-        Save a completed hand to the database
-        Returns the UUID of the saved hand
-        """
+        
         hand_uuid = str(uuid.uuid4())
         
         # Serialize complex data
@@ -46,9 +42,6 @@ class HandRepository:
         return hand_uuid
     
     def get_all_hands(self) -> List[Dict]:
-        """
-        Retrieve all hands in the exact format specified by the task
-        """
         query = """
             SELECT uuid, players_data, board_cards, pot_size, 
                    small_blind, big_blind, results
@@ -62,7 +55,6 @@ class HandRepository:
         
         for row in rows:
             try:
-                # Parse JSON data
                 players_data = json.loads(row['players_data']) if row['players_data'] else []
                 results = json.loads(row['results']) if row['results'] else {}
                 
@@ -81,24 +73,16 @@ class HandRepository:
                 continue
         
         return hands
-    
-    # Fix in backend/app/repositories/hand_repository.py
-# Update the _format_stack_info method to dynamically determine positions
 
-    # Fix for backend/app/repositories/hand_repository.py
-# Update _format_stack_info to use actual positions from player data
 
     def _format_stack_info(self, players_data: list, sb: int, bb: int) -> str:
         """Format: 'Stack 1000: Dealer: Player X, Player Y Small blind: Player Z'"""
         try:
-            # Get initial stack
             initial_stack = 1000
             if players_data:
-                # Try to determine original stack from first player
                 first_player = players_data[0]
                 initial_stack = first_player.get('stack_size', 1000) + first_player.get('totalBet', 0)
             
-            # Find players by position
             dealer_player = None
             sb_player = None
             bb_player = None
@@ -154,7 +138,6 @@ class HandRepository:
             return "Stack 1000: Dealer: Player 1, Player 2 Small blind: Player 3"
     
     def _format_hole_cards(self, players_data: list) -> str:
-        """Format: 'Players: Player 1: 7h8s, Player 2: KdQs, ...'"""
         try:
             cards = []
             for p in players_data:
@@ -175,10 +158,7 @@ class HandRepository:
             return "Players: Hole cards unavailable"
     
     def _format_action_sequence(self, players_data: list, board_cards: str) -> str:
-        """
-        Format ALL actions and board cards on ONE LINE with amounts
-        Example: 'Actions: f f f r300 c f 3hKdQs x b100 c Ac x x Th b80 r160 c'
-        """
+
         try:
             all_actions = []
             
@@ -214,8 +194,7 @@ class HandRepository:
                     if street in action_groups:
                         action_groups[street].append(short)
             
-            # Build sequence: preflop actions, flop cards, flop actions, turn card, etc.
-            # Add preflop actions
+           
             all_actions.extend(action_groups['preflop'])
             
             # Add flop cards and actions

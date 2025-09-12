@@ -1,12 +1,11 @@
--- Initialize poker database tables
--- This file is automatically executed when PostgreSQL container starts
+-- CREATE DATABASE IF NOT EXISTS poker_db;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
-CREATE DATABASE IF NOT EXISTS poker_db;
 
 -- Create hands table
 CREATE TABLE IF NOT EXISTS hands (
     id SERIAL PRIMARY KEY,
-    uuid VARCHAR(36) UNIQUE NOT NULL,
+    uuid UUID DEFAULT gen_random_uuid() UNIQUE NOT NULL,
     players_data TEXT,
     board_cards VARCHAR(10),
     pot_size INTEGER,
@@ -98,6 +97,3 @@ VALUES (
         "best_hands": {"1": "Ace high", "2": "Ace high"}
     }'::jsonb
 );
-
--- Grant necessary permissions (already handled by Docker environment)
--- The poker_user should already have full access to the poker_game database
