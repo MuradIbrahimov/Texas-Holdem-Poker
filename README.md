@@ -33,7 +33,7 @@ A full-stack Texas Hold'em poker simulator with hand evaluation and history trac
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/MuradIbrahimov/Texas-Holdem-Poker.git
 cd poker-app
 
 # Start all services
