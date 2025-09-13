@@ -82,7 +82,7 @@ poetry run pytest
 ## Project Structure
 
 ```
-poker-app/
+Texas-Holdem-Poker/
 ├── docker-compose.yml           # Multi-service orchestration
 ├── .gitignore                   # Git ignore patterns
 ├── README.md                    # This file
